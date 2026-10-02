@@ -2,7 +2,17 @@
 
 A small web app that generates laser-cutting files for cardboard boxes, with a live 3D preview.
 
-1. **Pick a box style:** shipping box (FEFCO 0201), tuck-end box, open tray, or tray + lid.
+1. **Pick a box style:**
+   - Shipping box (FEFCO 0201 slotted carton)
+   - Straight tuck end
+   - Reverse tuck end
+   - Snap-lock (1-2-3) bottom
+   - Auto-lock (crash-lock) bottom
+   - Seal end
+   - Gable top with handle
+   - Open tray
+   - Tray + lid
+   - Tray + sleeve
 2. **Enter the inside dimensions** (mm or inches) and pick the material thickness. Panels are enlarged automatically to make room for the material.
 3. **Choose a colour and add decals** (text or uploaded images). Drag them around on the 3D box. A decal that hangs over an edge wraps onto the next side like a sticker. If the two sides aren't next to each other on the flat sheet (across the glue seam, a lid edge, or the two top flaps), it is split automatically in the cut file.
 4. **Download an SVG or PDF.** The page is sized 1:1 to the sheet in millimetres.
@@ -31,6 +41,7 @@ npm run build    # production build in dist/
 The project uses Vite, TypeScript and three.js, with jsPDF for PDF export (loaded only when you export a PDF).
 
 - `src/geometry/styles.ts`: dieline generators. Each box is a tree of panels joined by hinges.
+- `src/geometry/cartons.ts`: folding cartons, built from a four-wall body plus a closure at each end (tuck, seal, snap-lock, auto-lock, gable).
 - `src/geometry/fold.ts`: turns that tree into 3D transforms for any fold progress.
 - `src/geometry/lines.ts`: derives cut and fold lines from the panels.
 - `src/geometry/surface.ts`: works out which faces touch on the assembled box and how to unfold one next to another, for wrapping decals.

@@ -14,7 +14,8 @@ const base: BoxParams = {
   lidHeight: 30,
   lidClearance: 1,
 };
-const styles: BoxStyle[] = ['rsc', 'tuck', 'tray', 'traylid'];
+const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve'];
+const twoPiece = (s: BoxStyle) => s === 'traylid' || s === 'sleeve';
 
 describe.each(styles)('%s', (style) => {
   const p = { ...base, style };
@@ -42,17 +43,16 @@ describe.each(styles)('%s', (style) => {
   it('folds into a box of the expected outer size', () => {
     const t = p.thickness;
     const box = foldedBounds(d, 1, { thickness: t }, 0);
-    const [L, W, H] = d.outer;
+    // For two-piece boxes piece 0 is the tray; the lid or sleeve is checked separately.
+    const [L, W, H] = twoPiece(style) ? [p.length + 2 * t, p.width + 2 * t, p.height + t] : d.outer;
     const size = box.max.clone().sub(box.min);
     const tol = 3 * t;
     expect(size.x).toBeGreaterThan(p.length);
     expect(Math.abs(size.x - L)).toBeLessThan(tol);
     expect(Math.abs(size.z - W)).toBeLessThan(tol);
-    // Lid of the two-piece box is a separate piece; the base is the tray only.
-    const baseH = style === 'traylid' ? p.height + t : H;
-    expect(Math.abs(size.y - baseH)).toBeLessThan(tol);
-    // Sits on the ground, centred.
-    expect(box.min.y).toBeCloseTo(0, 3);
+    expect(Math.abs(size.y - H)).toBeLessThan(tol);
+    // Sits on the ground (or on the sleeve's bottom panel), centred.
+    expect(box.min.y).toBeCloseTo(style === 'sleeve' ? t : 0, 3);
     expect(Math.abs(box.min.x + box.max.x)).toBeLessThan(1e-6);
   });
 
@@ -63,9 +63,13 @@ describe.each(styles)('%s', (style) => {
 
   it('cuts form closed loops', () => {
     const { cuts, folds } = computeLines(d);
-    expect(folds.length).toBe(d.panels.filter((x) => x.hinge).length);
+    // Every hinge becomes fold line (collinear neighbours may merge into one line).
+    const len = (a: number[], b: number[]) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const hingeLen = d.panels.reduce((n, x) => n + (x.hinge ? len(x.hinge[0], x.hinge[1]) : 0), 0);
+    expect(folds.reduce((n, f) => n + len(f.a, f.b), 0)).toBeCloseTo(hingeLen, 3);
     const chains = chainSegments(cuts);
-    expect(chains.length).toBe(d.pieces.length);
+    const holes = d.panels.reduce((n, x) => n + (x.holes?.length ?? 0), 0);
+    expect(chains.length).toBe(d.pieces.length + holes);
     for (const c of chains) {
       const a = c[0];
       const b = c[c.length - 1];
@@ -82,6 +86,27 @@ describe('traylid', () => {
     expect(lid.max.y).toBeCloseTo(tray.max.y + 3, 3);
     expect(lid.max.x).toBeGreaterThan(tray.max.x);
     expect(lid.min.z).toBeLessThan(tray.min.z);
+  });
+});
+
+describe('sleeve', () => {
+  it('wraps around the tray with the ends open', () => {
+    const d = generateDieline({ ...base, style: 'sleeve' });
+    const tray = foldedBounds(d, 1, { thickness: 3 }, 0);
+    const sl = foldedBounds(d, 1, { thickness: 3 }, 1);
+    // Same length, encloses the tray across its width and height.
+    expect(sl.max.x - sl.min.x).toBeCloseTo(tray.max.x - tray.min.x, 3);
+    expect(sl.min.z).toBeLessThan(tray.min.z);
+    expect(sl.max.z).toBeGreaterThan(tray.max.z);
+    expect(sl.min.y).toBeCloseTo(0, 3);
+    expect(sl.max.y).toBeGreaterThan(tray.max.y);
+  });
+});
+
+describe('gable', () => {
+  it('has a handle hole in both handle panels', () => {
+    const d = generateDieline({ ...base, style: 'gable' });
+    expect(d.panels.filter((x) => x.holes?.length).map((x) => x.id).sort()).toEqual(['handle-back', 'handle-front']);
   });
 });
 

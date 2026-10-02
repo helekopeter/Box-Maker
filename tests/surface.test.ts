@@ -8,7 +8,7 @@ const params = (style: BoxStyle): BoxParams => ({
   style, length: 100, width: 80, height: 60, thickness: 2, glueTab: 15, lidHeight: 30, lidClearance: 1,
 });
 const neighbours = (style: BoxStyle, id: string) =>
-  faceGraph(generateDieline(params(style))).get(id)!.neighbours.map((n) => n.id).sort();
+  [...new Set(faceGraph(generateDieline(params(style))).get(id)!.neighbours.map((n) => n.id))].sort();
 
 describe('face graph', () => {
   it('connects every wall of a tuck box, including across the glue seam and lid edges', () => {
@@ -55,5 +55,12 @@ describe('wrapping decals', () => {
     const front = d.faces.find((f) => f.id === 'front')!;
     const w = wrapPoint(d, 'front', [front.rect.x + 20, front.rect.y - 5]);
     expect(w.face).toBe('top');
+  });
+});
+
+describe('gable ridge', () => {
+  it('continues roofs into their own handle, not across the ridge', () => {
+    expect(neighbours('gable', 'roof-front')).toEqual(['front', 'handle-front']);
+    expect(neighbours('gable', 'handle-front')).toEqual(['handle-back', 'roof-front']);
   });
 });

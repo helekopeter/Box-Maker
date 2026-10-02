@@ -1,5 +1,5 @@
 import { apply, invert, multiply, rotate, translate, unfoldFrom, type Affine } from './geometry/surface';
-import type { Appearance, Decal, Dieline, Face, Vec2 } from './types';
+import type { Appearance, Decal, Dieline, Face, Panel, Vec2 } from './types';
 
 export const KRAFT = '#c9a46b';
 export const SELECT_COLOR = '#ff7a00';
@@ -132,10 +132,13 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-function tracePoly(ctx: CanvasRenderingContext2D, poly: Vec2[]) {
+/** Traces a panel outline plus its holes; fill or clip with 'evenodd'. */
+function tracePanel(ctx: CanvasRenderingContext2D, p: Panel) {
   ctx.beginPath();
-  poly.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  ctx.closePath();
+  for (const loop of [p.poly, ...(p.holes ?? [])]) {
+    loop.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+  }
 }
 
 export interface RenderOptions {
@@ -181,15 +184,15 @@ export async function renderArtwork(
   ctx.fillStyle = look.color;
   for (const p of d.panels) {
     if (p.kind === 'glue') continue;
-    tracePoly(ctx, p.poly);
-    ctx.fill();
+    tracePanel(ctx, p);
+    ctx.fill('evenodd');
   }
   if (opts.preview) {
     for (const p of d.panels) {
       if (p.kind !== 'glue') continue;
       ctx.save();
-      tracePoly(ctx, p.poly);
-      ctx.clip();
+      tracePanel(ctx, p);
+      ctx.clip('evenodd');
       ctx.strokeStyle = 'rgba(30,140,60,0.55)';
       ctx.lineWidth = 0.8;
       for (let k = -d.height; k < d.width; k += 4) {

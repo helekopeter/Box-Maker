@@ -84,11 +84,19 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string,
   return e;
 };
 
+// Small isometric sketches of each style for the style picker.
+const CARTON = '<path d="M18 16 34 10l12 6v38l-16 6-12-6z"/><path d="M18 16l16 6 12-6M34 22v38" class="l"/>';
 const STYLE_ICONS: Record<BoxStyle, string> = {
   rsc: '<path d="M8 20 32 10l24 10v26L32 56 8 46z"/><path d="M8 20l24 10 24-10M32 30v26" class="l"/><path d="M8 20 2 12l24-10 6 8M56 20l6-8-24-10-6 8" class="l"/>',
-  tuck: '<path d="M18 16 34 10l12 6v38l-16 6-12-6z"/><path d="M18 16l16 6 12-6M34 22v38" class="l"/><path d="M18 16l16-6 12 6-16 6z" class="l"/><path d="M34 22l-6-10" class="l"/>',
+  tuck: CARTON + '<path d="M18 16l16-6 12 6-16 6z" class="l"/><path d="M34 22l-6-10" class="l"/>',
+  rte: CARTON + '<path d="M18 16l16-6 12 6-16 6z" class="l"/><path d="M34 22l-6-10" class="l"/><path d="M18 54l-6 4 12 6 6-4" class="l"/>',
+  snaplock: CARTON + '<path d="M18 16l16-6 12 6-16 6z" class="l"/><path d="M22 52l4-6 4 8 4-8 4 6" class="l"/>',
+  autolock: CARTON + '<path d="M18 16l16-6 12 6-16 6z" class="l"/><path d="M22 58l10-10M30 60l10-10" class="l"/>',
+  sealend: '<path d="M16 14 36 8l12 5v42l-20 7-12-5z"/><path d="M16 14l12 5 20-6M28 19v43" class="l"/><path d="M19 15l12 4 14-4" class="l"/>',
+  gable: '<path d="M16 26 34 20l12 6v28l-16 6-14-6z"/><path d="M16 26l14 6 16-6M30 32v28" class="l"/><path d="M16 26l9-12 21 6-16 6" class="l"/><path d="M25 14l-2-8 20 6 3 8" class="l"/><path d="M28 10l12 4" class="l"/>',
   tray: '<path d="M6 30 32 20l26 10v12L32 54 6 42z"/><path d="M6 30l26 10 26-10M32 40v14" class="l"/><path d="M14 30l18-7 18 7-18 7z" class="l"/>',
   traylid: '<path d="M8 38 32 30l24 8v8L32 56 8 46z"/><path d="M8 38l24 8 24-8M32 46v10" class="l"/><path d="M6 18 32 8l26 10v6L32 34 6 24z"/><path d="M6 18l26 10 26-10M32 28v6" class="l"/>',
+  sleeve: '<path d="M4 34 26 26l34 10v10L38 54 4 44z"/><path d="M4 34l34 10 22-8M38 44v10" class="l"/><path d="M16 22l22-8 12 4v14L28 40 16 36z"/><path d="M16 22l12 4 22-8M28 26v14" class="l"/>',
 };
 
 const SWATCHES = [
@@ -127,8 +135,12 @@ function update() {
   renderStats();
   renderDieline2D();
   renderArt();
-  $('#lid-opts').hidden = p.style !== 'traylid';
-  $('#lift-wrap').hidden = p.style !== 'traylid';
+  const twoPiece = p.style === 'traylid' || p.style === 'sleeve';
+  $('#lid-opts').hidden = !twoPiece;
+  $('#lid-height-row').hidden = p.style !== 'traylid';
+  $('#lift-wrap').hidden = !twoPiece;
+  $('#lift-label').textContent = p.style === 'sleeve' ? 'Slide' : 'Lid';
+  applyLift();
   save();
 }
 
@@ -431,10 +443,7 @@ function bindControls() {
   $('#play').addEventListener('click', () => {
     preview.animateTo(fold > 0.5 ? 0 : 1);
   });
-  $<HTMLInputElement>('#lift').addEventListener('input', (e) => {
-    const v = parseFloat((e.target as HTMLInputElement).value);
-    preview.setLidLift(v * dieline.outer[2] * 1.2);
-  });
+  $<HTMLInputElement>('#lift').addEventListener('input', applyLift);
   $<HTMLInputElement>('#spin').addEventListener('change', (e) => (preview.autoRotate = (e.target as HTMLInputElement).checked));
 
   $('#add-text').addEventListener('click', () => {
@@ -452,6 +461,13 @@ function bindControls() {
     const aspect = img.naturalWidth ? img.naturalHeight / img.naturalWidth : 1;
     placeNewDecal({ id: uid(), type: 'image', face: 'front', x: 0.5, y: 0.5, size: 50, rotation: 0, src, aspect });
   });
+}
+
+/** Lifts the lid, or slides the sleeve off along its length, from the slider. */
+function applyLift() {
+  const v = parseFloat($<HTMLInputElement>('#lift').value);
+  const [L, , H] = dieline.outer;
+  preview.setLidLift(state.params.style === 'sleeve' ? v * L * 1.05 : v * H * 1.2);
 }
 
 function setFold(p: number) {

@@ -1,7 +1,17 @@
 /** A 2D point in dieline (sheet) coordinates. Units are millimetres, y points down (like SVG). */
 export type Vec2 = [number, number];
 
-export type BoxStyle = 'rsc' | 'tuck' | 'tray' | 'traylid';
+export type BoxStyle =
+  | 'rsc'
+  | 'tuck'
+  | 'rte'
+  | 'snaplock'
+  | 'autolock'
+  | 'sealend'
+  | 'gable'
+  | 'tray'
+  | 'traylid'
+  | 'sleeve';
 
 export interface BoxParams {
   style: BoxStyle;
@@ -15,7 +25,7 @@ export interface BoxParams {
   glueTab: number;
   /** Lid height in mm (tray + lid only). */
   lidHeight: number;
-  /** Extra room between tray and lid in mm (tray + lid only). */
+  /** Extra room between tray and lid or sleeve, in mm. */
   lidClearance: number;
 }
 
@@ -32,10 +42,12 @@ export interface Panel {
   kind: PanelKind;
   /** Outline polygon in sheet coordinates. */
   poly: Vec2[];
+  /** Cut-outs inside the panel (e.g. a handle hole). */
+  holes?: Vec2[][];
   parent?: string;
   /** Fold line shared with the parent. */
   hinge?: [Vec2, Vec2];
-  /** Fully-folded angle in degrees. Folds always go towards the inside of the box. */
+  /** Fully-folded angle in degrees. Positive folds towards the inside of the box, negative outwards. */
   angle?: number;
   /** Fold order; panels with a lower stage fold first. */
   stage?: number;
@@ -61,7 +73,8 @@ export interface PieceInfo {
   root: string;
   /** Final orientation of the root panel as Euler angles in degrees (XYZ). */
   rotation: [number, number, number];
-  role: 'base' | 'lid';
+  /** base: stands on the ground. lid: sits on top of the base. sleeve: slides over the base. */
+  role: 'base' | 'lid' | 'sleeve';
 }
 
 export interface Dieline {

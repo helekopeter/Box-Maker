@@ -1,4 +1,6 @@
 import type { BoxParams, BoxStyle, Dieline, Face, Panel, PieceInfo, Vec2 } from '../types';
+import { carton } from './cartons';
+import { glueTabPoly, rect } from './shapes';
 
 export const MARGIN = 5;
 
@@ -8,8 +10,28 @@ export const STYLE_INFO: Record<BoxStyle, { name: string; description: string }>
     description: 'Classic slotted carton (FEFCO 0201). Four walls, one glue tab, flaps fold over top and bottom.',
   },
   tuck: {
-    name: 'Tuck-end box',
-    description: 'Retail-style box with tuck-in lids and dust flaps at both ends. One glue seam.',
+    name: 'Straight tuck end',
+    description: 'Both tuck lids fold to the back, leaving a clean, uninterrupted front. One glue seam.',
+  },
+  rte: {
+    name: 'Reverse tuck end',
+    description: 'Top lid tucks in from the back, bottom lid from the front. The everyday retail carton.',
+  },
+  snaplock: {
+    name: 'Snap-lock bottom',
+    description: 'Tuck top with a 1-2-3 bottom: fold the sides, then the back, then push the front tongue in. Holds heavier items without glue.',
+  },
+  autolock: {
+    name: 'Auto-lock bottom',
+    description: 'Crash-lock bottom. Glue the two marked triangles once; after that the bottom snaps into place as you open the box.',
+  },
+  sealend: {
+    name: 'Seal end',
+    description: 'Cereal-box style. Side flaps fold in, then the end flaps are glued shut at top and bottom.',
+  },
+  gable: {
+    name: 'Gable top',
+    description: 'Rooftop carton with a built-in carry handle and a snap-lock bottom.',
   },
   tray: {
     name: 'Open tray',
@@ -19,34 +41,11 @@ export const STYLE_INFO: Record<BoxStyle, { name: string; description: string }>
     name: 'Tray + lid',
     description: 'Two-piece telescoping box: a tray and a slightly larger lid that slides over it.',
   },
+  sleeve: {
+    name: 'Tray + sleeve',
+    description: 'Two pieces: an open tray that slides into an outer sleeve, open at both ends.',
+  },
 };
-
-const rect = (x: number, y: number, w: number, h: number): Vec2[] => [
-  [x, y],
-  [x + w, y],
-  [x + w, y + h],
-  [x, y + h],
-];
-
-/** Quarter-circle points from angle a0 to a1 (radians), excluding the start point. */
-function arc(cx: number, cy: number, r: number, a0: number, a1: number, steps = 8): Vec2[] {
-  const pts: Vec2[] = [];
-  for (let i = 1; i <= steps; i++) {
-    const a = a0 + ((a1 - a0) * i) / steps;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-  }
-  return pts;
-}
-
-function glueTabPoly(hx: number, y0: number, y1: number, g: number, dirX: 1 | -1): Vec2[] {
-  const c = Math.min(g * 0.8, (y1 - y0) / 4);
-  return [
-    [hx, y0],
-    [hx + dirX * g, y0 + c],
-    [hx + dirX * g, y1 - c],
-    [hx, y1],
-  ];
-}
 
 // ---------------------------------------------------------------------------
 // Regular slotted container (FEFCO 0201)
@@ -133,123 +132,6 @@ function rsc(p: BoxParams): Dieline {
     pieces: [{ index: 0, root: 'front', rotation: [0, 0, 0], role: 'base' }],
     width: x,
     height: 2 * F + H,
-    outer: [L + t, W + t, H],
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Straight tuck end box
-// ---------------------------------------------------------------------------
-function tuck(p: BoxParams): Dieline {
-  const t = p.thickness;
-  const L = p.length + t;
-  const W = p.width + t;
-  const H = p.height + 2 * t;
-  const g = p.glueTab;
-  const T = Math.min(Math.max(10, W * 0.6), 40, H * 0.8); // tuck flap depth
-  const D = Math.min(L * 0.42, Math.max(10, W * 0.7)); // dust flap depth
-  const Y0 = W + T;
-  const Y1 = Y0 + H;
-  const xs = { front: 0, right: L, back: L + W, left: 2 * L + W, end: 2 * L + 2 * W };
-
-  const panels: Panel[] = [
-    { id: 'front', piece: 0, kind: 'face', poly: rect(xs.front, Y0, L, H) },
-    {
-      id: 'right', piece: 0, kind: 'face', poly: rect(xs.right, Y0, W, H),
-      parent: 'front', hinge: [[xs.right, Y0], [xs.right, Y1]], angle: 90, stage: 1,
-    },
-    {
-      id: 'back', piece: 0, kind: 'face', poly: rect(xs.back, Y0, L, H),
-      parent: 'right', hinge: [[xs.back, Y0], [xs.back, Y1]], angle: 90, stage: 1,
-    },
-    {
-      id: 'left', piece: 0, kind: 'face', poly: rect(xs.left, Y0, W, H),
-      parent: 'back', hinge: [[xs.left, Y0], [xs.left, Y1]], angle: 90, stage: 1,
-    },
-    {
-      id: 'glue', piece: 0, kind: 'glue', poly: glueTabPoly(xs.end, Y0, Y1, g, 1),
-      parent: 'left', hinge: [[xs.end, Y0], [xs.end, Y1]], angle: 90, stage: 1, offset: -1,
-    },
-  ];
-
-  // Dust flaps on both side panels, top and bottom.
-  const r = Math.min(t / 2, 1); // small relief so the flap clears the neighbouring hinges
-  for (const side of ['right', 'left'] as const) {
-    const x = xs[side];
-    const s = Math.min(W * 0.25, D * 0.35);
-    for (const top of [true, false]) {
-      const y = top ? Y0 : Y1;
-      const dy = top ? -1 : 1;
-      panels.push({
-        id: `${side}-dust-${top ? 'top' : 'bottom'}`,
-        piece: 0,
-        kind: 'flap',
-        poly: [
-          [x + r, y],
-          [x + r, y + dy * D * 0.25],
-          [x + s, y + dy * D],
-          [x + W - s, y + dy * D],
-          [x + W - r, y + dy * D * 0.25],
-          [x + W - r, y],
-        ],
-        parent: side,
-        hinge: [[x + r, y], [x + W - r, y]],
-        angle: 90,
-        stage: 2,
-        offset: -1,
-      });
-    }
-  }
-
-  // Lids + tuck flaps, both attached to the back panel.
-  const i = Math.min(t, 1.5); // tuck flap side inset so it slides in
-  const R = Math.min(T * 0.8, (L - 2 * i) / 3);
-  const xb = xs.back;
-  for (const top of [true, false]) {
-    const name = top ? 'top' : 'bottom';
-    const hy = top ? Y0 : Y1; // hinge with the back
-    const ly = top ? Y0 - W : Y1 + W; // lid's free edge
-    const dy = top ? -1 : 1;
-    panels.push({
-      id: name, piece: 0, kind: 'face', poly: rect(xb, Math.min(hy, ly), L, W),
-      parent: 'back', hinge: [[xb, hy], [xb + L, hy]], angle: 90, stage: 3,
-    });
-    const tx0 = xb + i;
-    const tx1 = xb + L - i;
-    const ty = ly + dy * T;
-    // Rounded tuck flap. Arc angles are in SVG space (y down).
-    const poly: Vec2[] = [[tx0, ly], [tx0, ty - dy * R]];
-    if (top) {
-      poly.push(...arc(tx0 + R, ty + R, R, Math.PI, Math.PI * 1.5));
-      poly.push([tx1 - R, ty]);
-      poly.push(...arc(tx1 - R, ty + R, R, Math.PI * 1.5, Math.PI * 2));
-    } else {
-      poly.push(...arc(tx0 + R, ty - R, R, Math.PI, Math.PI / 2));
-      poly.push([tx1 - R, ty]);
-      poly.push(...arc(tx1 - R, ty - R, R, Math.PI / 2, 0));
-    }
-    poly.push([tx1, ly]);
-    panels.push({
-      id: `${name}-tuck`, piece: 0, kind: 'flap', poly,
-      parent: name, hinge: [[tx0, ly], [tx1, ly]], angle: 90, stage: 4, offset: -1,
-    });
-  }
-
-  const faces: Face[] = [
-    { id: 'front', label: 'Front', rect: { x: xs.front, y: Y0, w: L, h: H }, rotation: 0 },
-    { id: 'right', label: 'Right', rect: { x: xs.right, y: Y0, w: W, h: H }, rotation: 0 },
-    { id: 'back', label: 'Back', rect: { x: xs.back, y: Y0, w: L, h: H }, rotation: 0 },
-    { id: 'left', label: 'Left', rect: { x: xs.left, y: Y0, w: W, h: H }, rotation: 0 },
-    { id: 'top', label: 'Top', rect: { x: xb, y: Y0 - W, w: L, h: W }, rotation: 180 },
-    { id: 'bottom', label: 'Bottom', rect: { x: xb, y: Y1, w: L, h: W }, rotation: 180 },
-  ];
-
-  return finish({
-    panels,
-    faces,
-    pieces: [{ index: 0, root: 'front', rotation: [0, 0, 0], role: 'base' }],
-    width: xs.end + g,
-    height: 2 * (W + T) + H,
     outer: [L + t, W + t, H],
   });
 }
@@ -359,14 +241,9 @@ function traylid(p: BoxParams): Dieline {
   const c = p.lidClearance;
   const lidH = Math.min(p.lidHeight, p.height + t);
   const lid = trayPiece(base.outer[0] + 2 * c, base.outer[1] + 2 * c, lidH, t, p.glueTab, 1, 'lid-', 'Lid ', true);
-  const gap = 8;
-  const dx = base.width + gap;
+  const dx = base.width + 8;
   const dy = (base.height - lid.height) / 2;
-  for (const pnl of lid.panels) {
-    pnl.poly = pnl.poly.map(([x, y]) => [x + dx, y + dy] as Vec2);
-    if (pnl.hinge) pnl.hinge = pnl.hinge.map(([x, y]) => [x + dx, y + dy]) as [Vec2, Vec2];
-  }
-  for (const f of lid.faces) f.rect = { ...f.rect, x: f.rect.x + dx, y: f.rect.y + dy };
+  shift(lid.panels, lid.faces, dx, dy);
   const pieces: PieceInfo[] = [
     { index: 0, root: 'bottom', rotation: [90, 0, 0], role: 'base' },
     { index: 1, root: 'lid-bottom', rotation: [-90, 0, 0], role: 'lid' },
@@ -381,6 +258,68 @@ function traylid(p: BoxParams): Dieline {
   });
 }
 
+function shift(panels: Panel[], faces: Face[], dx: number, dy: number) {
+  const mv = ([x, y]: Vec2): Vec2 => [x + dx, y + dy];
+  for (const p of panels) {
+    p.poly = p.poly.map(mv);
+    if (p.holes) p.holes = p.holes.map((h) => h.map(mv));
+    if (p.hinge) p.hinge = [mv(p.hinge[0]), mv(p.hinge[1])];
+  }
+  for (const f of faces) f.rect = { ...f.rect, x: f.rect.x + dx, y: f.rect.y + dy };
+}
+
+// ---------------------------------------------------------------------------
+// Tray + sleeve
+// ---------------------------------------------------------------------------
+
+/** An open-ended tube: top, back, bottom and front panels in a row plus a glue tab. */
+function sleevePiece(innerW: number, innerH: number, length: number, t: number, g: number, piece: number) {
+  const Ws = innerW + 2 * t;
+  const Hs = innerH + 2 * t;
+  const strip = [
+    { id: 'sleeve-top', label: 'Sleeve top', w: Ws, rotation: 90 },
+    { id: 'sleeve-back', label: 'Sleeve back', w: Hs, rotation: -90 },
+    { id: 'sleeve-bottom', label: 'Sleeve bottom', w: Ws, rotation: 90 },
+    { id: 'sleeve-front', label: 'Sleeve front', w: Hs, rotation: 90 },
+  ];
+  const panels: Panel[] = [];
+  const faces: Face[] = [];
+  let x = 0;
+  strip.forEach((s, i) => {
+    panels.push({
+      id: s.id, piece, kind: 'face', poly: rect(x, 0, s.w, length),
+      ...(i ? { parent: strip[i - 1].id, hinge: [[x, 0], [x, length]] as [Vec2, Vec2], angle: 90, stage: 1 } : {}),
+    });
+    faces.push({ id: s.id, label: s.label, rect: { x, y: 0, w: s.w, h: length }, rotation: s.rotation });
+    x += s.w;
+  });
+  panels.push({
+    id: 'sleeve-glue', piece, kind: 'glue', poly: glueTabPoly(x, 0, length, Math.min(g, Ws * 0.4), 1),
+    parent: 'sleeve-front', hinge: [[x, 0], [x, length]], angle: 90, stage: 1, offset: -1,
+  });
+  return { panels, faces, width: x + g, height: length, outer: [length, Ws, Hs] as [number, number, number] };
+}
+
+function sleeve(p: BoxParams): Dieline {
+  const t = p.thickness;
+  const base = trayPiece(p.length, p.width, p.height, t, p.glueTab, 0, '', '', false);
+  const c = p.lidClearance;
+  const sl = sleevePiece(base.outer[1] + 2 * c, base.outer[2] + c, base.outer[0], t, p.glueTab, 1);
+  shift(sl.panels, sl.faces, base.width + 8, (base.height - sl.height) / 2);
+  return finish({
+    panels: [...base.panels, ...sl.panels],
+    faces: [...base.faces, ...sl.faces],
+    pieces: [
+      { index: 0, root: 'bottom', rotation: [90, 0, 0], role: 'base' },
+      // Lay the sleeve's top panel flat with its length running left-right.
+      { index: 1, root: 'sleeve-top', rotation: [-90, 0, 90], role: 'sleeve' },
+    ],
+    width: 0,
+    height: 0,
+    outer: [sl.outer[0], sl.outer[1], sl.outer[2]],
+  });
+}
+
 /** Normalises the layout so it starts at (MARGIN, MARGIN) and records the sheet size. */
 function finish(d: Dieline): Dieline {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -391,12 +330,7 @@ function finish(d: Dieline): Dieline {
     }
   const dx = MARGIN - minX;
   const dy = MARGIN - minY;
-  const mv = ([x, y]: Vec2): Vec2 => [x + dx, y + dy];
-  for (const p of d.panels) {
-    p.poly = p.poly.map(mv);
-    if (p.hinge) p.hinge = [mv(p.hinge[0]), mv(p.hinge[1])];
-  }
-  for (const f of d.faces) f.rect = { ...f.rect, x: f.rect.x + dx, y: f.rect.y + dy };
+  shift(d.panels, d.faces, dx, dy);
   d.width = maxX - minX + 2 * MARGIN;
   d.height = maxY - minY + 2 * MARGIN;
   return d;
@@ -405,8 +339,14 @@ function finish(d: Dieline): Dieline {
 export function generateDieline(p: BoxParams): Dieline {
   switch (p.style) {
     case 'rsc': return rsc(p);
-    case 'tuck': return tuck(p);
+    case 'tuck': return finish(carton(p, 'tuck-back', 'tuck-back'));
+    case 'rte': return finish(carton(p, 'tuck-back', 'tuck-front'));
+    case 'snaplock': return finish(carton(p, 'tuck-back', 'snaplock'));
+    case 'autolock': return finish(carton(p, 'tuck-back', 'autolock'));
+    case 'sealend': return finish(carton(p, 'seal', 'seal'));
+    case 'gable': return finish(carton(p, 'gable', 'snaplock'));
     case 'tray': return tray(p);
     case 'traylid': return traylid(p);
+    case 'sleeve': return sleeve(p);
   }
 }

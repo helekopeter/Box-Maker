@@ -53,9 +53,9 @@ export function buildSvg(d: Dieline, look: Appearance, opts: SvgOptions): string
     const body: string[] = [];
     const bg = d.panels
       .filter((p) => p.kind !== 'glue')
-      .map((p) => polyPath(p.poly, true))
+      .map((p) => [p.poly, ...(p.holes ?? [])].map((loop) => polyPath(loop, true)).join(' '))
       .join(' ');
-    body.push(`<path d="${bg}" fill="${esc(look.color)}" stroke="none"/>`);
+    body.push(`<path d="${bg}" fill="${esc(look.color)}" fill-rule="evenodd" stroke="none"/>`);
     const clipped = new Set<string>();
     look.decals.forEach((dc, i) => {
       const pieces = decalPieces(d, dc);

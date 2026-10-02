@@ -134,6 +134,7 @@ export class BoxPreview {
     const t = Math.max(0.3, thickness);
     for (const p of d.panels) {
       const shape = new THREE.Shape(p.poly.map(([x, y]) => new THREE.Vector2(x, -y)));
+      for (const hole of p.holes ?? []) shape.holes.push(new THREE.Path(hole.map(([x, y]) => new THREE.Vector2(x, -y))));
       const geo = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false, curveSegments: 1 });
       geo.translate(0, 0, -t);
       splitCaps(geo);

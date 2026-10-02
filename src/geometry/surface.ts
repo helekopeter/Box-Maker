@@ -80,6 +80,9 @@ interface FaceNode {
   piece: number;
   /** World-space edges of the face rectangle on the assembled box. */
   edges: [Vector3, Vector3][];
+  centre: Vector3;
+  /** Outward (printed side) normal on the assembled box. */
+  normal: Vector3;
   inv: Matrix4;
   neighbours: { id: string; map: Affine }[];
 }
@@ -114,6 +117,8 @@ export function faceGraph(d: Dieline): Map<string, FaceNode> {
       panel: panel.id,
       piece: panel.piece,
       edges: corners.map((p, i) => [p, corners[(i + 1) % 4]] as [Vector3, Vector3]),
+      centre: corners.reduce((acc, p) => acc.add(p), new Vector3()).divideScalar(4),
+      normal: new Vector3(0, 0, 1).transformDirection(m),
       inv: m.clone().invert(),
       neighbours: [],
     });
@@ -121,41 +126,74 @@ export function faceGraph(d: Dieline): Map<string, FaceNode> {
 
   const list = [...nodes.values()];
   for (const A of list) {
-    for (const B of list) {
-      if (A === B || A.piece !== B.piece) continue;
-      const shared = sharedEdge(A, B);
-      if (!shared) continue;
-      const [w1, w2] = shared;
+    for (const edge of A.edges) {
+      const candidates: { B: FaceNode; shared: [Vector3, Vector3] }[] = [];
+      for (const B of list) {
+        if (A === B || A.piece !== B.piece) continue;
+        const shared = sharedEdge(edge, B);
+        if (shared) candidates.push({ B, shared });
+      }
+      const next = continuation(A, edge, candidates);
+      if (!next) continue;
+      const [w1, w2] = next.shared;
       const a1 = toSheet(w1.clone().applyMatrix4(A.inv));
       const a2 = toSheet(w2.clone().applyMatrix4(A.inv));
-      const b1 = toSheet(w1.clone().applyMatrix4(B.inv));
-      const b2 = toSheet(w2.clone().applyMatrix4(B.inv));
-      A.neighbours.push({ id: B.face.id, map: rigid(a1, a2, b1, b2) });
+      const b1 = toSheet(w1.clone().applyMatrix4(next.B.inv));
+      const b2 = toSheet(w2.clone().applyMatrix4(next.B.inv));
+      A.neighbours.push({ id: next.B.face.id, map: rigid(a1, a2, b1, b2) });
     }
   }
   graphs.set(d, nodes);
   return nodes;
 }
 
-/** The overlapping part of two collinear face edges in world space, if any. */
-function sharedEdge(A: FaceNode, B: FaceNode): [Vector3, Vector3] | null {
-  for (const [p0, p1] of A.edges) {
-    const len = p0.distanceTo(p1);
-    if (len < 1e-6) continue;
-    const u = p1.clone().sub(p0).divideScalar(len);
-    for (const [q0, q1] of B.edges) {
-      const off0 = q0.clone().sub(p0);
-      const off1 = q1.clone().sub(p0);
-      const t0 = off0.dot(u);
-      const t1 = off1.dot(u);
-      // Both endpoints of B's edge must lie on A's edge line.
-      if (off0.clone().addScaledVector(u, -t0).length() > 0.05) continue;
-      if (off1.clone().addScaledVector(u, -t1).length() > 0.05) continue;
-      const lo = Math.max(0, Math.min(t0, t1));
-      const hi = Math.min(len, Math.max(t0, t1));
-      if (hi - lo < 0.5) continue;
-      return [p0.clone().addScaledVector(u, lo), p0.clone().addScaledVector(u, hi)];
-    }
+/**
+ * Several faces can meet along one edge (e.g. two roof panels and a double-layer handle
+ * at a gable's ridge). The printed surface continues onto the first face reached by
+ * sweeping around the edge through the outside, provided that face's printed side looks
+ * back at the sweep. Anything else would mean passing through the cardboard.
+ */
+function continuation<T extends { B: FaceNode }>(A: FaceNode, [p0, p1]: [Vector3, Vector3], candidates: T[]): T | null {
+  if (!candidates.length) return null;
+  const e = p1.clone().sub(p0).normalize();
+  const inward = (c: Vector3) => {
+    const v = c.clone().sub(p0);
+    return v.addScaledVector(e, -v.dot(e)).normalize();
+  };
+  const u = inward(A.centre);
+  const v = A.normal.clone().addScaledVector(e, -A.normal.dot(e)).normalize();
+  const scored = candidates.map((c) => {
+    const dB = inward(c.B.centre);
+    const x = dB.dot(u);
+    const y = dB.dot(v);
+    let phi = Math.atan2(y, x);
+    if (phi <= 1e-6) phi += Math.PI * 2;
+    // Sweep direction at B; B's printed side must face back against it.
+    const sweep = u.clone().multiplyScalar(-y).addScaledVector(v, x);
+    return { c, phi, facesBack: c.B.normal.dot(sweep) < 0 };
+  });
+  const first = Math.min(...scored.map((s) => s.phi));
+  const hit = scored.find((s) => s.phi - first < 1e-3 && s.facesBack);
+  return hit ? hit.c : null;
+}
+
+/** The part of face B's edges that overlaps the given (world space) edge, if any. */
+function sharedEdge([p0, p1]: [Vector3, Vector3], B: FaceNode): [Vector3, Vector3] | null {
+  const len = p0.distanceTo(p1);
+  if (len < 1e-6) return null;
+  const u = p1.clone().sub(p0).divideScalar(len);
+  for (const [q0, q1] of B.edges) {
+    const off0 = q0.clone().sub(p0);
+    const off1 = q1.clone().sub(p0);
+    const t0 = off0.dot(u);
+    const t1 = off1.dot(u);
+    // Both endpoints of B's edge must lie on A's edge line.
+    if (off0.clone().addScaledVector(u, -t0).length() > 0.05) continue;
+    if (off1.clone().addScaledVector(u, -t1).length() > 0.05) continue;
+    const lo = Math.max(0, Math.min(t0, t1));
+    const hi = Math.min(len, Math.max(t0, t1));
+    if (hi - lo < 0.5) continue;
+    return [p0.clone().addScaledVector(u, lo), p0.clone().addScaledVector(u, hi)];
   }
   return null;
 }

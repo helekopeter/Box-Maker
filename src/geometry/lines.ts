@@ -88,11 +88,13 @@ export function computeLines(d: Dieline): { cuts: Segment[]; folds: Segment[] } 
   };
 
   for (const p of d.panels) {
-    for (let i = 0; i < p.poly.length; i++) {
-      const a = p.poly[i];
-      const b = p.poly[(i + 1) % p.poly.length];
-      const g = get(a, b);
-      if (g) g.cuts.push([param(g, a), param(g, b)]);
+    for (const loop of [p.poly, ...(p.holes ?? [])]) {
+      for (let i = 0; i < loop.length; i++) {
+        const a = loop[i];
+        const b = loop[(i + 1) % loop.length];
+        const g = get(a, b);
+        if (g) g.cuts.push([param(g, a), param(g, b)]);
+      }
     }
     if (p.hinge) {
       const g = get(p.hinge[0], p.hinge[1]);

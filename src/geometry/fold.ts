@@ -129,8 +129,13 @@ export function foldMatrices(d: Dieline, progress: number, opts: FoldOptions): M
     const cx = -(box.min.x + box.max.x) / 2;
     const cz = -(box.min.z + box.max.z) / 2;
     if (pc.role === 'base') {
-      finalPos.set(pc.index, new Vector3(cx, -box.min.y, cz));
+      // Inside a sleeve the base rests on the sleeve's bottom panel.
+      const floor = d.pieces.some((x) => x.role === 'sleeve') ? t : 0;
+      finalPos.set(pc.index, new Vector3(cx, floor - box.min.y, cz));
       baseTop = box.max.y - box.min.y;
+    } else if (pc.role === 'sleeve') {
+      // Slides along the length; "lid lift" pulls it off one end.
+      finalPos.set(pc.index, new Vector3(cx + (opts.lidLift ?? 0), -box.min.y, cz));
     } else {
       finalPos.set(pc.index, new Vector3(cx, baseTop + t + (opts.lidLift ?? 0) - box.max.y, cz));
     }
@@ -143,7 +148,8 @@ export function foldMatrices(d: Dieline, progress: number, opts: FoldOptions): M
     const q = FLAT.clone().slerp(pieceQuat(pc.rotation), w);
     const start = flatPos.clone().add(rootCentre.get(pc.index)!.clone().applyQuaternion(FLAT));
     const pos = start.lerp(finalPos.get(pc.index)!, w);
-    if (pc.role === 'lid') pos.y += Math.sin(w * Math.PI) * 0.6 * Math.max(d.outer[0], d.outer[1]); // lift while flipping
+    // Lift second pieces clear of the base while they turn over.
+    if (pc.role !== 'base') pos.y += Math.sin(w * Math.PI) * 0.6 * Math.max(d.outer[0], d.outer[1]);
     pieceMats.set(pc.index, new Matrix4().makeTranslation(pos).multiply(pre(q, pc.index)));
   }
 
