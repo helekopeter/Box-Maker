@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Box Maker</title>
+    <meta name="description" content="Generate laser-cutting files (SVG / PDF) for cardboard boxes with a live 3D preview." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 9v14l-13 6-13-6V9z' fill='%23c9a46b' stroke='%235b4326' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M3 9l13 6 13-6M16 15v14' fill='none' stroke='%235b4326' stroke-width='2'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 29 9v14l-13 6-13-6V9z" /><path d="M3 9l13 6 13-6M16 15v14" class="fold" /></svg>
+        <span>Box Maker</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn ghost" id="reset-btn" title="Reset all settings">Reset</button>
+        <button class="btn" id="dl-svg">Download SVG</button>
+        <button class="btn primary" id="dl-pdf">Download PDF</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <section class="panel">
+          <h2><span class="step">1</span> Box style</h2>
+          <div class="styles" id="styles"></div>
+          <p class="hint" id="style-desc"></p>
+        </section>
+
+        <section class="panel">
+          <h2>
+            <span class="step">2</span> Size
+            <span class="seg" id="units">
+              <button data-unit="mm" class="on">mm</button><button data-unit="in">in</button>
+            </span>
+          </h2>
+          <p class="hint">Inside dimensions, so your stuff fits.</p>
+          <div class="grid3">
+            <label>Length<input type="number" id="length" min="1" step="1" /></label>
+            <label>Width<input type="number" id="width" min="1" step="1" /></label>
+            <label>Height<input type="number" id="height" min="1" step="1" /></label>
+          </div>
+          <label class="row">Material
+            <select id="material">
+              <option value="1">Thin card · 1 mm</option>
+              <option value="1.5">Cardboard · 1.5 mm</option>
+              <option value="2">Grey board · 2 mm</option>
+              <option value="3">Corrugated · 3 mm</option>
+              <option value="4">Double wall · 4 mm</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </label>
+          <label class="row" id="thickness-row" hidden>Thickness <span class="unit-label">mm</span>
+            <input type="number" id="thickness" min="0.2" max="10" step="0.1" />
+          </label>
+          <details class="advanced">
+            <summary>Advanced</summary>
+            <label class="row">Glue tab <span class="unit-label">mm</span><input type="number" id="glueTab" min="5" max="60" step="1" /></label>
+            <div id="lid-opts">
+              <label class="row">Lid height <span class="unit-label">mm</span><input type="number" id="lidHeight" min="5" step="1" /></label>
+              <label class="row">Lid clearance <span class="unit-label">mm</span><input type="number" id="lidClearance" min="0" max="10" step="0.1" /></label>
+            </div>
+            <label class="row">Laser bed <span class="unit-label">mm</span>
+              <span class="pair"><input type="number" id="bedW" min="50" step="10" /> × <input type="number" id="bedH" min="50" step="10" /></span>
+            </label>
+          </details>
+          <div class="stats" id="stats"></div>
+        </section>
+
+        <section class="panel">
+          <h2><span class="step">3</span> Look</h2>
+          <div class="swatches" id="swatches"></div>
+          <label class="row">Custom colour<input type="color" id="color" /></label>
+        </section>
+
+        <section class="panel">
+          <h2><span class="step">4</span> Decals</h2>
+          <div class="decal-actions">
+            <button class="btn small" id="add-text">+ Text</button>
+            <label class="btn small file">+ Image<input type="file" id="add-image" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" /></label>
+          </div>
+          <div id="decals"></div>
+          <p class="hint" id="decal-empty">Add a logo or label. Pick which side of the box it goes on, then drag the sliders to place it.</p>
+        </section>
+
+        <section class="panel">
+          <h2><span class="step">5</span> Export</h2>
+          <fieldset class="radio">
+            <legend>Fold lines</legend>
+            <label><input type="radio" name="foldMode" value="score" /> Score <span class="hint">blue line, set your laser to low power</span></label>
+            <label><input type="radio" name="foldMode" value="perforate" /> Perforate <span class="hint">dashed red cut, no power change needed</span></label>
+          </fieldset>
+          <label class="check"><input type="checkbox" id="includeGlue" /> Mark glue areas</label>
+          <label class="check"><input type="checkbox" id="includeArtwork" /> Include colour &amp; decals <span class="hint">for printing or engraving</span></label>
+          <div class="export-btns">
+            <button class="btn" id="dl-svg-2">SVG</button>
+            <button class="btn primary" id="dl-pdf-2">PDF</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="stage">
+        <div class="viewer" id="viewer">
+          <div class="viewer-controls">
+            <button class="btn round" id="play" title="Fold / unfold">▶</button>
+            <label class="slider">Fold<input type="range" id="fold" min="0" max="1" step="0.001" /></label>
+            <label class="slider" id="lift-wrap">Lid<input type="range" id="lift" min="0" max="1" step="0.001" value="0" /></label>
+            <label class="check small"><input type="checkbox" id="spin" /> Spin</label>
+          </div>
+          <div class="viewer-hint">Drag to orbit · scroll to zoom</div>
+        </div>
+        <div class="dieline-card">
+          <div class="dieline-head">
+            <h3>Cutting layout</h3>
+            <div class="legend">
+              <span><i class="sw cut"></i>Cut</span>
+              <span><i class="sw fold" id="legend-fold"></i>Fold</span>
+              <span><i class="sw glue"></i>Glue</span>
+            </div>
+          </div>
+          <div class="dieline" id="dieline"></div>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
