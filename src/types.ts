@@ -52,6 +52,12 @@ export interface Panel {
   /** Fold order; panels with a lower stage fold first. */
   stage?: number;
   /**
+   * Custom fold path within the panel's stage as [time 0..1, angle in degrees] keyframes,
+   * interpolated linearly, e.g. so a tuck flap slides in behind a wall as its lid closes.
+   * Overrides `angle`; the last keyframe is the folded angle.
+   */
+  motion?: [number, number][];
+  /**
    * Layering nudge applied when folded, in multiples of the material thickness
    * along the panel's outside normal. Keeps overlapping flaps from z-fighting.
    */

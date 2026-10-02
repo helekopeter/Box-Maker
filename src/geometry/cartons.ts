@@ -70,18 +70,29 @@ function body(p: BoxParams): Body {
   return { t, L, W, H, x, panels, faces, extraHeight: 0 };
 }
 
-/** Dust flaps on the two side walls, tucked under a lid. */
-function dustFlaps(b: Body, e: End) {
+/**
+ * Dust flaps on the two side walls, tucked under a lid. At the end next to the wall the
+ * tuck flap slides down behind, they stop short to leave room for it.
+ */
+function dustFlaps(b: Body, e: End, tuckInto: 'front' | 'back') {
   const { L, W, t } = b;
   const D = Math.min(L * 0.42, Math.max(10, W * 0.7));
   const s = Math.min(W * 0.25, D * 0.35);
   const r = Math.min(t / 2, 1); // relief so the flap clears the neighbouring hinges
+  const gap = 2.5 * t + 1; // room for the tuck flap between wall and dust flap
   for (const side of ['right', 'left'] as const) {
     const x = b.x[side];
+    // On the sheet the right wall starts at the front corner, the left wall at the back.
+    const tuckAtStart = (side === 'right') === (tuckInto === 'front');
+    const r0 = tuckAtStart ? gap : r;
+    const r1 = tuckAtStart ? r : gap;
     b.panels.push({
       id: `${side}-dust-${e.name}`, piece: 0, kind: 'flap',
-      poly: e.poly([[x + r, 0], [x + r, D * 0.25], [x + s, D], [x + W - s, D], [x + W - r, D * 0.25], [x + W - r, 0]]),
-      parent: side, hinge: [e.at(x + r, 0), e.at(x + W - r, 0)], angle: 90, stage: 2, offset: -1,
+      poly: e.poly([
+        [x + r0, 0], [x + r0, D * 0.25], [x + Math.max(s, r0), D],
+        [x + W - Math.max(s, r1), D], [x + W - r1, D * 0.25], [x + W - r1, 0],
+      ]),
+      parent: side, hinge: [e.at(x + r0, 0), e.at(x + W - r1, 0)], angle: 90, stage: 2, offset: -1,
     });
   }
 }
@@ -93,7 +104,7 @@ function tuckEnd(b: Body, e: End, attach: 'back' | 'front') {
   const i = Math.min(t, 1.5); // side inset so the tuck slides in
   const R = Math.min(T * 0.8, (L - 2 * i) / 3);
   const x0 = b.x[attach];
-  dustFlaps(b, e);
+  dustFlaps(b, e, attach === 'back' ? 'front' : 'back');
   const lid = e.poly([[x0, 0], [x0 + L, 0], [x0 + L, W], [x0, W]]);
   b.panels.push({
     id: e.name, piece: 0, kind: 'face', poly: lid,
@@ -112,12 +123,47 @@ function tuckEnd(b: Body, e: End, attach: 'back' | 'front') {
   ];
   b.panels.push({
     id: `${e.name}-tuck`, piece: 0, kind: 'flap', poly: e.poly(pts),
-    parent: e.name, hinge: [e.at(tx0, W), e.at(tx1, W)], angle: 90, stage: 4, offset: -1,
+    parent: e.name, hinge: [e.at(tx0, W), e.at(tx1, W)], stage: 3, offset: -1,
+    motion: tuckMotion(W, T, t),
   });
   // A lid on the back reads upside down on the sheet; one on the front doesn't.
   b.faces.push({
     id: e.name, label: e.top ? 'Top' : 'Bottom', rect: bounds(lid), rotation: attach === 'back' ? 180 : 0,
   });
+}
+
+/**
+ * Fold path for a tuck flap that closes together with its lid (same stage, lid angle
+ * 90°·ease(t)). Once the flap's tip would dip below the top of the walls, its angle is
+ * chosen so the tip slides down just behind the inside of the opposite wall, which is how
+ * the flap goes in when you close the lid by hand. Before that it bends in gradually.
+ */
+function tuckMotion(W: number, T: number, t: number): [number, number][] {
+  const rad = Math.PI / 180;
+  const c = 1.25 * t + 0.25; // how far behind the wall's outer face the tip slides
+  const ease = (x: number) => x * x * (3 - 2 * x);
+  // Tuck angle (relative to the lid, deg) that puts the tip at depth c, or null if the
+  // lid is still too far open for the tip to reach that plane.
+  const sliding = (a: number): number | null => {
+    const cosPhi = (W * (1 - Math.sin(a * rad)) - c) / T;
+    if (cosPhi >= 1) return null;
+    const phi = Math.acos(Math.max(-1, cosPhi)) / rad;
+    // phi is the tuck's direction below horizontal-forward; tip height relative to the walls:
+    const tipY = W * Math.cos(a * rad) - T * Math.sin(phi * rad);
+    return tipY < 0 ? phi - a + 90 : null;
+  };
+  const N = 48;
+  const samples = Array.from({ length: N + 1 }, (_, i) => i / N);
+  const a0Index = samples.findIndex((s) => sliding(90 * ease(s)) !== null);
+  const a0 = a0Index < 0 ? 90 : 90 * ease(samples[a0Index]);
+  const theta0 = a0Index < 0 ? 90 : sliding(a0)!;
+  const keys = samples.map((s): [number, number] => {
+    const a = 90 * ease(s);
+    const theta = a < a0 ? theta0 * ease(a / a0) : sliding(a) ?? theta0;
+    return [s, theta];
+  });
+  keys[keys.length - 1] = [1, 90];
+  return keys;
 }
 
 /** Seal end: side flaps fold in, then the back and front flaps fold over and are glued. */
@@ -208,23 +254,27 @@ function autoLock(b: Body, e: End) {
     b.panels.push({
       id: `${side}-auto-${e.name}`, piece: 0, kind: 'flap',
       poly: e.poly([[x, 0], [x + s, dB], [x + W - s, dB], [x + W, 0]]),
-      parent: side, hinge: [e.at(x, 0), e.at(x + W, 0)], angle: 90, stage: 2,
+      // Side flaps close last so they end up outermost, over the glue triangles.
+      parent: side, hinge: [e.at(x, 0), e.at(x + W, 0)], angle: 90, stage: 3,
     });
   }
-  const dA = Math.min(W * 0.6, L * 0.6);
+  // Inset from the corners so the flaps swing up inside the side flaps hanging below.
+  const i = b.t;
+  const dA = Math.min(W * 0.6, (L - 2 * i) * 0.6);
   for (const wall of ['front', 'back'] as const) {
-    const x = b.x[wall];
+    const x0 = b.x[wall] + i;
+    const x1 = b.x[wall] + L - i;
     const id = `${wall}-auto-${e.name}`;
     b.panels.push({
       id, piece: 0, kind: 'flap',
-      poly: e.poly([[x, 0], [x + L, 0], [x + L - dA, dA], [x, dA]]),
-      parent: wall, hinge: [e.at(x, 0), e.at(x + L, 0)], angle: 90, stage: 3, offset: -1,
+      poly: e.poly([[x0, 0], [x1, 0], [x1 - dA, dA], [x0, dA]]),
+      parent: wall, hinge: [e.at(x0, 0), e.at(x1, 0)], angle: 90, stage: 2, offset: -1,
     });
     // Glue triangle beyond the diagonal fold; it is glued to the side flap on its right.
     b.panels.push({
       id: `${id}-glue`, piece: 0, kind: 'glue',
-      poly: e.poly([[x + L, 0], [x + L, dA], [x + L - dA, dA]]),
-      parent: id, hinge: [e.at(x + L, 0), e.at(x + L - dA, dA)], angle: 0, stage: 3, offset: -1,
+      poly: e.poly([[x1, 0], [x1, dA], [x1 - dA, dA]]),
+      parent: id, hinge: [e.at(x1, 0), e.at(x1 - dA, dA)], angle: 0, stage: 2, offset: -1,
     });
   }
 }

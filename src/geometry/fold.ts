@@ -13,11 +13,31 @@ export function maxStage(d: Dieline): number {
   return d.panels.reduce((m, p) => Math.max(m, p.stage ?? 0), 1);
 }
 
+/** Time (0..1) within a panel's own stage at overall progress p (0..1). */
+function stageTime(panel: Panel, progress: number, stages: number): number {
+  if (!panel.stage) return 1;
+  return MathUtils.clamp(progress * stages - (panel.stage - 1), 0, 1);
+}
+
 /** Fold amount (0..1) of a panel at overall progress p (0..1). */
 export function panelProgress(panel: Panel, progress: number, stages: number): number {
-  if (!panel.stage) return 1;
-  const local = progress * stages - (panel.stage - 1);
-  return ease(MathUtils.clamp(local, 0, 1));
+  return ease(stageTime(panel, progress, stages));
+}
+
+/** Fold angle (deg) of a panel at overall progress p, following its keyframes if it has any. */
+export function panelAngle(panel: Panel, progress: number, stages: number): number {
+  const keys = panel.motion;
+  if (!keys) return (panel.angle ?? 90) * panelProgress(panel, progress, stages);
+  const t = stageTime(panel, progress, stages);
+  let prev: [number, number] = [0, 0];
+  for (const k of keys) {
+    if (t <= k[0]) {
+      const span = k[0] - prev[0];
+      return prev[1] + (k[1] - prev[1]) * (span > 0 ? (t - prev[0]) / span : 1);
+    }
+    prev = k;
+  }
+  return prev[1];
 }
 
 function centroid(poly: Vec2[]): Vec2 {
@@ -48,7 +68,7 @@ export function localMatrices(d: Dieline, progress: number): Map<string, Matrix4
       if (!parent) throw new Error(`Unknown parent ${p.parent}`);
       const a = to3(p.hinge[0]);
       const axis = to3(p.hinge[1]).sub(a).normalize();
-      const angle = MathUtils.degToRad(p.angle ?? 90) * foldSign(p) * panelProgress(p, progress, stages);
+      const angle = MathUtils.degToRad(panelAngle(p, progress, stages)) * foldSign(p);
       m = resolve(parent)
         .clone()
         .multiply(new Matrix4().makeTranslation(a.x, a.y, a.z))
