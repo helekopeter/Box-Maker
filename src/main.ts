@@ -1,9 +1,10 @@
 import './style.css';
-import { faceSize, KRAFT, renderArtwork } from './artwork';
+import { decalCenter, faceSize, hitDecal, KRAFT, renderArtwork, setDecalCenter } from './artwork';
 import { buildSvg } from './export/svg';
 import { generateDieline, STYLE_INFO } from './geometry/styles';
-import { BoxPreview } from './preview3d';
-import type { Appearance, BoxParams, BoxStyle, Decal, Dieline, ExportOptions, FoldMode } from './types';
+import { angleOf, apply, applyLinear, faceAt, invert, multiply, unfoldFrom, wrapPoint } from './geometry/surface';
+import { BoxPreview, type SurfaceHit } from './preview3d';
+import type { Appearance, BoxParams, BoxStyle, Decal, Dieline, ExportOptions, Face, FoldMode, Vec2 } from './types';
 
 // ---------------------------------------------------------------------------
 // State
@@ -17,26 +18,21 @@ interface State {
   bed: [number, number];
 }
 
-const STORAGE_KEY = 'box-maker:v1';
+const STORAGE_KEY = 'box-maker:v2';
 const IN = 25.4;
 
 const defaults = (): State => ({
   params: {
     style: 'tuck',
-    length: 120,
-    width: 60,
-    height: 160,
+    length: 100,
+    width: 100,
+    height: 100,
     thickness: 1.5,
     glueTab: 15,
     lidHeight: 30,
     lidClearance: 1,
   },
-  look: {
-    color: '#2f6f8f',
-    decals: [
-      { id: uid(), type: 'text', face: 'front', x: 0.5, y: 0.4, size: 0.12, rotation: 0, text: 'MY BOX', color: '#ffffff', font: 'sans', bold: true },
-    ],
-  },
+  look: { color: KRAFT, decals: [] },
   exp: { foldMode: 'score', includeArtwork: false, includeGlue: true },
   units: 'mm',
   material: '1.5',
@@ -96,9 +92,9 @@ const STYLE_ICONS: Record<BoxStyle, string> = {
 };
 
 const SWATCHES = [
-  ['Kraft', KRAFT], ['White', '#f4f1ea'], ['Black', '#222222'], ['Red', '#c0392b'],
+  ['Brown', KRAFT], ['White', '#f4f1ea'], ['Black', '#222222'], ['Red', '#c0392b'],
   ['Orange', '#e67e22'], ['Yellow', '#f1c40f'], ['Green', '#3f8f4f'], ['Teal', '#2f6f8f'],
-  ['Blue', '#2c4f9e'], ['Purple', '#7d4a9e'], ['Pink', '#e48aa8'],
+  ['Blue', '#2c4f9e'], ['Purple', '#7d4a9e'], ['Pink', '#ff94ec'],
 ];
 
 // ---------------------------------------------------------------------------
@@ -123,7 +119,10 @@ function update() {
   }
   // Keep decals on faces that exist for this style.
   for (const dc of state.look.decals) {
-    if (!dieline.faces.some((f) => f.id === dc.face)) dc.face = dieline.faces[0].id;
+    if (!dieline.faces.some((f) => f.id === dc.face)) {
+      dc.face = dieline.faces[0].id;
+      dc.x = dc.y = 0.5;
+    }
   }
   renderStats();
   renderDieline2D();
@@ -137,7 +136,7 @@ async function renderArt() {
   const token = ++artToken;
   const scale = Math.min(4, 4096 / Math.max(dieline.width, dieline.height));
   const off = document.createElement('canvas');
-  await renderArtwork(dieline, state.look, { scale, preview: true }, off);
+  await renderArtwork(dieline, state.look, { scale, preview: true, selected }, off);
   if (token !== artToken) return;
   artCanvas.width = off.width;
   artCanvas.height = off.height;
@@ -152,6 +151,111 @@ function renderDieline2D() {
     $('#dieline').innerHTML = buildSvg(dieline, state.look, { ...state.exp, includeArtwork: true, includeGlue: true, preview: true });
   });
   $('#legend-fold').className = `sw ${state.exp.foldMode === 'score' ? 'fold' : 'perf'}`;
+}
+
+// ---------------------------------------------------------------------------
+// Decal selection and dragging on the 3D box
+// ---------------------------------------------------------------------------
+let selected: string | null = null;
+/** Active drag: offset from the pointer to the decal centre, in the anchor face's sheet frame. */
+let drag: { id: string; grab: Vec2 } | null = null;
+let artQueued = false;
+
+/** Redraws decals only (no geometry change), at most once per frame. */
+function refreshArt() {
+  if (artQueued) return;
+  artQueued = true;
+  requestAnimationFrame(() => {
+    artQueued = false;
+    renderArt();
+    // Rebuilding the 2D preview every frame of a drag is wasteful; it catches up on release.
+    if (!drag) renderDieline2D();
+    save();
+  });
+}
+
+const faceById = (id: string) => dieline.faces.find((f) => f.id === id);
+
+function selectDecal(id: string | null) {
+  if (selected === id) return;
+  selected = id;
+  document.querySelectorAll<HTMLElement>('.decal').forEach((c) => c.classList.toggle('on', c.dataset.id === id));
+  if (id) document.querySelector(`.decal[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  refreshArt();
+}
+
+const surfaceAt = (hit: SurfaceHit | null): { face: Face; point: Vec2 } | null => {
+  if (!hit) return null;
+  const face = faceAt(dieline, hit.panel, hit.sheet);
+  return face ? { face, point: hit.sheet } : null;
+};
+
+const normAngle = (a: number) => Math.round((((a + 180) % 360 + 360) % 360 - 180) * 100) / 100;
+
+preview.onPointer = (type, hit) => {
+  const decals = state.look.decals;
+  const surf = surfaceAt(hit);
+  if (type === 'hover') return !!surf && hitDecal(dieline, decals, surf.face.id, surf.point) >= 0;
+
+  if (type === 'down') {
+    const i = surf ? hitDecal(dieline, decals, surf.face.id, surf.point) : -1;
+    if (!surf || i < 0) {
+      selectDecal(null);
+      return false;
+    }
+    const dc = decals[i];
+    const toAnchor = unfoldFrom(dieline, surf.face.id).get(dc.face)!;
+    const p = apply(toAnchor, surf.point);
+    const c = decalCenter(faceById(dc.face)!, dc);
+    drag = { id: dc.id, grab: [c[0] - p[0], c[1] - p[1]] };
+    selectDecal(dc.id);
+    return true;
+  }
+
+  if (type === 'move' && drag && surf) {
+    const dc = decals.find((x) => x.id === drag!.id);
+    const anchor = dc && faceById(dc.face);
+    if (!dc || !anchor) return;
+    const toAnchor = unfoldFrom(dieline, surf.face.id).get(dc.face);
+    if (!toAnchor) return;
+    // Work in the frame of the face under the pointer, then hand the decal to whichever
+    // face its centre lands on. Overhanging parts wrap onto neighbouring faces when drawn.
+    const fromAnchor = invert(toAnchor);
+    const grab = applyLinear(fromAnchor, drag.grab);
+    const centre: Vec2 = [surf.point[0] + grab[0], surf.point[1] + grab[1]];
+    const w = wrapPoint(dieline, surf.face.id, centre);
+    const target = faceById(w.face)!;
+    const anchorToTarget = multiply(unfoldFrom(dieline, surf.face.id).get(w.face)!, fromAnchor);
+    // Keep the decal's orientation on the surface continuous as it crosses an edge.
+    dc.rotation = normAngle(anchor.rotation + dc.rotation + angleOf(anchorToTarget) - target.rotation);
+    dc.face = w.face;
+    setDecalCenter(target, dc, w.point);
+    drag.grab = applyLinear(anchorToTarget, drag.grab);
+    syncDecalCard(dc);
+    refreshArt();
+    return;
+  }
+
+  if (type === 'up' && drag) {
+    drag = null;
+    renderDieline2D();
+    save();
+  }
+};
+
+/** Places a new decal on the face in the middle of the 3D view (or the front). */
+function placeNewDecal(dc: Decal) {
+  const surf = surfaceAt(preview.pick(0, 0));
+  const face = surf?.face ?? faceById('front') ?? dieline.faces[0];
+  dc.face = face.id;
+  const { w, h } = faceSize(face);
+  if (dc.type === 'text') dc.size = Math.max(4, Math.round(Math.min(w, h) * 0.18));
+  else dc.size = Math.round(w * 0.5);
+  if (surf) setDecalCenter(face, dc, surf.point);
+  state.look.decals.push(dc);
+  selected = dc.id;
+  renderDecalList();
+  refreshArt();
 }
 
 const fmt = (mm: number) =>
@@ -334,9 +438,7 @@ function bindControls() {
   $<HTMLInputElement>('#spin').addEventListener('change', (e) => (preview.autoRotate = (e.target as HTMLInputElement).checked));
 
   $('#add-text').addEventListener('click', () => {
-    state.look.decals.push({ id: uid(), type: 'text', face: 'front', x: 0.5, y: 0.5, size: 0.12, rotation: 0, text: 'Text', color: '#111111', font: 'sans', bold: false });
-    renderDecalList();
-    update();
+    placeNewDecal({ id: uid(), type: 'text', face: 'front', x: 0.5, y: 0.5, size: 10, rotation: 0, text: 'Text', color: '#111111', font: 'sans', bold: true });
   });
   $<HTMLInputElement>('#add-image').addEventListener('change', async (e) => {
     const input = e.target as HTMLInputElement;
@@ -348,9 +450,7 @@ function bindControls() {
     img.src = src;
     await img.decode().catch(() => undefined);
     const aspect = img.naturalWidth ? img.naturalHeight / img.naturalWidth : 1;
-    state.look.decals.push({ id: uid(), type: 'image', face: 'front', x: 0.5, y: 0.5, size: 0.5, rotation: 0, src, aspect });
-    renderDecalList();
-    update();
+    placeNewDecal({ id: uid(), type: 'image', face: 'front', x: 0.5, y: 0.5, size: 50, rotation: 0, src, aspect });
   });
 }
 
@@ -399,41 +499,53 @@ function renderDecalList() {
   const wrap = $('#decals');
   wrap.innerHTML = '';
   $('#decal-empty').hidden = state.look.decals.length > 0;
+  $('#decal-help').hidden = state.look.decals.length === 0;
   state.look.decals.forEach((dc, i) => wrap.append(decalEditor(dc, i)));
 }
 
-function decalEditor(dc: Decal, index: number): HTMLElement {
-  const changed = () => update();
-  const card = el('div', { className: 'decal' });
+/** Updates a decal card's controls after the decal was moved in 3D. */
+function syncDecalCard(dc: Decal) {
+  const card = document.querySelector<HTMLElement>(`.decal[data-id="${dc.id}"]`);
+  if (!card) return;
+  card.querySelector<HTMLSelectElement>('select.side')!.value = dc.face;
+  const rot = card.querySelector<HTMLInputElement>('input[data-key=rotation]')!;
+  rot.value = String(dc.rotation);
+  rot.dispatchEvent(new Event('sync'));
+}
 
-  const faceSel = el('select');
+function decalEditor(dc: Decal, index: number): HTMLElement {
+  const changed = () => refreshArt();
+  const card = el('div', { className: `decal${dc.id === selected ? ' on' : ''}` });
+  card.dataset.id = dc.id;
+  card.addEventListener('pointerdown', () => selectDecal(dc.id));
+
+  const faceSel = el('select', { className: 'side', title: 'Side of the box' });
   for (const f of dieline.faces) faceSel.append(el('option', { value: f.id, textContent: f.label, selected: f.id === dc.face }));
   faceSel.onchange = () => {
     dc.face = faceSel.value;
+    dc.x = dc.y = 0.5;
+    dc.rotation = 0;
+    syncDecalCard(dc);
     changed();
   };
 
-  const head = el(
-    'div',
-    { className: 'decal-head' },
-    el('span', { className: 'decal-kind', textContent: dc.type === 'text' ? 'T' : '🖼' }),
-    faceSel,
-  );
-  const up = el('button', { className: 'icon', title: 'Move up', textContent: '↑', disabled: index === 0 });
+  const up = el('button', { className: 'icon', title: 'Bring forward', textContent: '↑', disabled: index === state.look.decals.length - 1 });
   up.onclick = () => {
     const d = state.look.decals;
-    [d[index - 1], d[index]] = [d[index], d[index - 1]];
+    [d[index + 1], d[index]] = [d[index], d[index + 1]];
     renderDecalList();
     changed();
   };
   const del = el('button', { className: 'icon', title: 'Remove', textContent: '✕' });
   del.onclick = () => {
     state.look.decals.splice(index, 1);
+    if (selected === dc.id) selected = null;
     renderDecalList();
     changed();
   };
-  head.append(up, del);
-  card.append(head);
+  card.append(
+    el('div', { className: 'decal-head' }, el('span', { className: 'decal-kind', textContent: dc.type === 'text' ? 'T' : '▣' }), faceSel, up, del),
+  );
 
   if (dc.type === 'text') {
     const txt = el('textarea', { value: dc.text ?? '', rows: 1, placeholder: 'Your text' });
@@ -464,27 +576,21 @@ function decalEditor(dc: Decal, index: number): HTMLElement {
     card.append(el('img', { className: 'decal-thumb', src: dc.src, alt: '' }));
   }
 
-  const slider = (label: string, key: 'x' | 'y' | 'size' | 'rotation', min: number, max: number, step: number) => {
+  const slider = (label: string, key: 'size' | 'rotation', min: number, max: number, step: number, unit: string) => {
     const inp = el('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(dc[key]) });
+    inp.dataset.key = key;
+    const out = el('output', { textContent: `${Math.round(dc[key])}${unit}` });
+    const show = () => (out.textContent = `${Math.round(parseFloat(inp.value))}${unit}`);
+    inp.addEventListener('sync', show);
     inp.oninput = () => {
       dc[key] = parseFloat(inp.value);
+      show();
       changed();
     };
-    return el('label', { className: 'mini' }, label, inp);
+    return el('label', { className: 'mini' }, el('span', { textContent: label }), inp, out);
   };
-  const face = dieline.faces.find((f) => f.id === dc.face);
-  const maxSize = dc.type === 'text' ? 0.6 : 1.2;
-  card.append(
-    el(
-      'div',
-      { className: 'decal-sliders' },
-      slider('←→', 'x', 0, 1, 0.005),
-      slider('↑↓', 'y', 0, 1, 0.005),
-      slider('Size', 'size', 0.02, maxSize, 0.005),
-      slider('Turn', 'rotation', -180, 180, 1),
-    ),
-  );
-  if (face) card.title = `${face.label}: ${Math.round(faceSize(face).w)} × ${Math.round(faceSize(face).h)} mm`;
+  const maxSize = Math.ceil(Math.max(...dieline.outer) * (dc.type === 'text' ? 0.6 : 1.5));
+  card.append(slider('Size', 'size', 2, Math.max(maxSize, dc.size), 0.5, ' mm'), slider('Turn', 'rotation', -180, 180, 1, '°'));
   return card;
 }
 

@@ -6,7 +6,7 @@ import type { Appearance } from '../src/types';
 const d = generateDieline({ style: 'tuck', length: 100, width: 50, height: 120, thickness: 1.5, glueTab: 15, lidHeight: 30, lidClearance: 1 });
 const look: Appearance = {
   color: '#336699',
-  decals: [{ id: 'a', type: 'text', face: 'front', x: 0.5, y: 0.5, size: 0.1, rotation: 0, text: 'A & <B>', color: '#fff' }],
+  decals: [{ id: 'a', type: 'text', face: 'front', x: 0.5, y: 0.5, size: 8, rotation: 0, text: 'A & <B>', color: '#fff' }],
 };
 
 describe('buildSvg', () => {

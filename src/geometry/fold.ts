@@ -34,8 +34,8 @@ function foldSign(p: Panel): number {
   return moved.z < 0 ? 1 : -1;
 }
 
-/** Hinge transforms of every panel relative to its piece root (no layering offset). */
-function localMatrices(d: Dieline, progress: number): Map<string, Matrix4> {
+/** Hinge transforms of every panel relative to its piece root (no layering offset). At progress 1 this is the assembled box. */
+export function localMatrices(d: Dieline, progress: number): Map<string, Matrix4> {
   const stages = maxStage(d);
   const byId = new Map(d.panels.map((p) => [p.id, p]));
   const out = new Map<string, Matrix4>();

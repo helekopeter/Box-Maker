@@ -1,6 +1,8 @@
+import { apply, invert, multiply, rotate, translate, unfoldFrom, type Affine } from './geometry/surface';
 import type { Appearance, Decal, Dieline, Face, Vec2 } from './types';
 
 export const KRAFT = '#c9a46b';
+export const SELECT_COLOR = '#ff7a00';
 
 /** Width/height of a face as seen upright on the assembled box. */
 export function faceSize(f: Face): { w: number; h: number } {
@@ -8,33 +10,99 @@ export function faceSize(f: Face): { w: number; h: number } {
   return sideways ? { w: f.rect.h, h: f.rect.w } : { w: f.rect.w, h: f.rect.h };
 }
 
-export interface DecalPlacement {
-  /** Translation, rotation (deg) and box of the decal in its local frame. */
-  cx: number;
-  cy: number;
-  faceRotation: number;
-  lx: number;
-  ly: number;
-  rotation: number;
-  w: number;
-  h: number;
-  fontSize: number;
+/** Face-local frame: origin at the face centre, x right and y down as seen upright on the box. */
+export function faceFrame(f: Face): Affine {
+  return multiply(translate(f.rect.x + f.rect.w / 2, f.rect.y + f.rect.h / 2), rotate(f.rotation));
 }
 
-export function placeDecal(f: Face, dc: Decal): DecalPlacement {
-  const { w: fw, h: fh } = faceSize(f);
-  const w = dc.size * fw;
-  return {
-    cx: f.rect.x + f.rect.w / 2,
-    cy: f.rect.y + f.rect.h / 2,
-    faceRotation: f.rotation,
-    lx: (dc.x - 0.5) * fw,
-    ly: (dc.y - 0.5) * fh,
-    rotation: dc.rotation,
-    w,
-    h: w * (dc.aspect ?? 1),
-    fontSize: dc.size * fh,
-  };
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+
+/** Size of a decal in mm. Images: `size` is the width. Text: `size` is the font size. */
+export function decalExtent(dc: Decal): { w: number; h: number } {
+  if (dc.type === 'image') return { w: dc.size, h: dc.size * (dc.aspect ?? 1) };
+  const lines = (dc.text ?? '').split('\n');
+  if (measureCtx === undefined) {
+    measureCtx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+  }
+  let w = 0;
+  for (const line of lines) {
+    if (measureCtx) {
+      measureCtx.font = `${dc.bold ? 'bold ' : ''}100px ${fontStack(dc.font)}`;
+      w = Math.max(w, (measureCtx.measureText(line).width / 100) * dc.size);
+    } else {
+      w = Math.max(w, line.length * dc.size * 0.6);
+    }
+  }
+  return { w, h: lines.length * dc.size * 1.15 };
+}
+
+/** Decal centre in the sheet coordinates of its anchor face. */
+export function decalCenter(f: Face, dc: Decal): Vec2 {
+  const { w, h } = faceSize(f);
+  return apply(faceFrame(f), [(dc.x - 0.5) * w, (dc.y - 0.5) * h]);
+}
+
+/** Moves a decal so its centre sits at a sheet point (given in the anchor face's coordinates). */
+export function setDecalCenter(f: Face, dc: Decal, p: Vec2) {
+  const { w, h } = faceSize(f);
+  const [u, v] = apply(invert(faceFrame(f)), p);
+  dc.x = u / w + 0.5;
+  dc.y = v / h + 0.5;
+}
+
+/** Decal-local (centred, unrotated) → anchor face sheet coordinates. */
+export function decalMatrix(f: Face, dc: Decal): Affine {
+  const [cx, cy] = decalCenter(f, dc);
+  return multiply(translate(cx, cy), rotate(f.rotation + dc.rotation));
+}
+
+export interface DecalPiece {
+  face: Face;
+  /** Anchor sheet → this face's sheet coordinates. */
+  map: Affine;
+  /** Decal-local → this face's sheet coordinates. */
+  matrix: Affine;
+}
+
+/**
+ * Every face a decal shows up on. A decal hanging over the edge of its face continues onto
+ * the neighbouring face as if the box were unfolded there, so on the flat sheet it is split
+ * whenever those faces aren't next to each other.
+ */
+export function decalPieces(d: Dieline, dc: Decal): DecalPiece[] {
+  const faces = new Map(d.faces.map((f) => [f.id, f]));
+  const anchor = faces.get(dc.face);
+  if (!anchor) return [];
+  const local = decalMatrix(anchor, dc);
+  const { w, h } = decalExtent(dc);
+  const pad = 0.5;
+  const corners: Vec2[] = [[-w / 2 - pad, -h / 2 - pad], [w / 2 + pad, -h / 2 - pad], [w / 2 + pad, h / 2 + pad], [-w / 2 - pad, h / 2 + pad]];
+  const out: DecalPiece[] = [];
+  for (const [id, map] of unfoldFrom(d, dc.face)) {
+    const face = faces.get(id)!;
+    const matrix = multiply(map, local);
+    const pts = corners.map((c) => apply(matrix, c));
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    const r = face.rect;
+    if (Math.max(...xs) < r.x || Math.min(...xs) > r.x + r.w || Math.max(...ys) < r.y || Math.min(...ys) > r.y + r.h) continue;
+    out.push({ face, map, matrix });
+  }
+  return out;
+}
+
+/** Topmost decal under a sheet point on a face, or -1. */
+export function hitDecal(d: Dieline, decals: Decal[], face: string, p: Vec2): number {
+  for (let i = decals.length - 1; i >= 0; i--) {
+    const dc = decals[i];
+    const piece = decalPieces(d, dc).find((pc) => pc.face.id === face);
+    if (!piece) continue;
+    const [x, y] = apply(invert(piece.matrix), p);
+    const { w, h } = decalExtent(dc);
+    const tol = 2;
+    if (Math.abs(x) <= w / 2 + tol && Math.abs(y) <= h / 2 + tol) return i;
+  }
+  return -1;
 }
 
 export function fontStack(font?: string): string {
@@ -75,6 +143,8 @@ export interface RenderOptions {
   scale: number;
   /** Draw unprinted board and glue hatching too (used for the 3D texture). */
   preview: boolean;
+  /** Id of a decal to outline (preview only). */
+  selected?: string | null;
 }
 
 /** Renders the printed outside of the sheet: background colour plus decals. */
@@ -132,32 +202,35 @@ export async function renderArtwork(
     }
   }
 
-  const faces = new Map(d.faces.map((f) => [f.id, f]));
   for (const dc of look.decals) {
-    const f = faces.get(dc.face);
-    if (!f) continue;
-    const pl = placeDecal(f, dc);
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(f.rect.x, f.rect.y, f.rect.w, f.rect.h);
-    ctx.clip();
-    ctx.translate(pl.cx, pl.cy);
-    ctx.rotate((pl.faceRotation * Math.PI) / 180);
-    ctx.translate(pl.lx, pl.ly);
-    ctx.rotate((pl.rotation * Math.PI) / 180);
-    if (dc.type === 'text' && dc.text) {
-      ctx.fillStyle = dc.color ?? '#000';
-      ctx.font = `${dc.bold ? 'bold ' : ''}${pl.fontSize}px ${fontStack(dc.font)}`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      dc.text.split('\n').forEach((line, i, all) => {
-        ctx.fillText(line, 0, (i - (all.length - 1) / 2) * pl.fontSize * 1.15);
-      });
-    } else if (dc.type === 'image' && dc.src) {
-      const img = images.get(dc.src);
-      if (img) ctx.drawImage(img, -pl.w / 2, -pl.h / 2, pl.w, pl.h);
+    const { w, h } = decalExtent(dc);
+    for (const pc of decalPieces(d, dc)) {
+      const r = pc.face.rect;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(r.x, r.y, r.w, r.h);
+      ctx.clip();
+      ctx.transform(...pc.matrix);
+      if (dc.type === 'text' && dc.text) {
+        ctx.fillStyle = dc.color ?? '#000';
+        ctx.font = `${dc.bold ? 'bold ' : ''}${dc.size}px ${fontStack(dc.font)}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        dc.text.split('\n').forEach((line, i, all) => {
+          ctx.fillText(line, 0, (i - (all.length - 1) / 2) * dc.size * 1.15);
+        });
+      } else if (dc.type === 'image' && dc.src) {
+        const img = images.get(dc.src);
+        if (img) ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      }
+      if (opts.preview && opts.selected === dc.id) {
+        ctx.strokeStyle = SELECT_COLOR;
+        ctx.lineWidth = Math.max(0.6, 1.5 / opts.scale);
+        ctx.setLineDash([3, 2]);
+        ctx.strokeRect(-w / 2 - 1.5, -h / 2 - 1.5, w + 3, h + 3);
+      }
+      ctx.restore();
     }
-    ctx.restore();
   }
   return canvas;
 }

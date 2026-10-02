@@ -2,7 +2,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { KRAFT } from './artwork';
 import { foldedBounds, foldMatrices } from './geometry/fold';
-import type { Dieline } from './types';
+import type { Dieline, Vec2 } from './types';
+
+export interface SurfaceHit {
+  panel: string;
+  /** Point in sheet coordinates (mm). */
+  sheet: Vec2;
+}
 
 /** Interactive three.js view of the folding box. */
 export class BoxPreview {
@@ -17,7 +23,15 @@ export class BoxPreview {
   private textureSize = '';
   private outside = new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0, color: 0xffffff });
   private inside = new THREE.MeshStandardMaterial({ color: KRAFT, roughness: 0.9 });
-  private edge = new THREE.MeshStandardMaterial({ color: 0xa88550, roughness: 1 });
+  // Panel edges sit exactly in the plane of the neighbouring panel's face at every fold.
+  // Push them back in the depth buffer so the faces always win instead of flickering.
+  private edge = new THREE.MeshStandardMaterial({
+    color: 0xa88550,
+    roughness: 1,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 2,
+  });
   private dieline: Dieline | null = null;
   private thickness = 3;
   private progress = 1;
@@ -39,7 +53,8 @@ export class BoxPreview {
     sun.position.set(0.6, 1, 0.8).multiplyScalar(1000);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.bias = -0.0005;
+    sun.shadow.bias = -0.0002;
+    sun.shadow.normalBias = 0.6;
     this.scene.add(sun, sun.target);
     const fill = new THREE.DirectionalLight(0xffffff, 0.6);
     fill.position.set(-1, 0.4, -0.6).multiplyScalar(1000);
@@ -53,6 +68,12 @@ export class BoxPreview {
     this.ground.receiveShadow = true;
     this.scene.add(this.ground, this.group);
 
+    // Registered before OrbitControls so a decal drag can claim the pointer first.
+    const el = this.renderer.domElement;
+    el.addEventListener('pointerdown', (e) => this.pointer('down', e));
+    el.addEventListener('pointermove', (e) => this.pointer(this.dragging ? 'move' : 'hover', e));
+    el.addEventListener('pointerup', (e) => this.pointer('up', e));
+    el.addEventListener('pointercancel', (e) => this.pointer('up', e));
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.maxPolarAngle = Math.PI * 0.495;
@@ -123,6 +144,7 @@ export class BoxPreview {
       uv.needsUpdate = true;
       const mesh = new THREE.Mesh(geo, [this.outside, this.inside, this.edge]);
       mesh.matrixAutoUpdate = false;
+      mesh.userData.panel = p.id;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.meshes.set(p.id, mesh);
@@ -208,6 +230,52 @@ export class BoxPreview {
     cam.far = 4000;
     cam.updateProjectionMatrix();
     this.needsRender = true;
+  }
+
+  /**
+   * Called for pointer events over the 3D view with the point on the box's printed
+   * surface (panel + sheet coordinates), if any. Return true from 'down' to start a drag:
+   * the camera stops orbiting and 'move' events follow until 'up'.
+   */
+  onPointer: (type: 'down' | 'move' | 'up' | 'hover', hit: SurfaceHit | null) => boolean | void = () => {};
+  private dragging = false;
+  private raycaster = new THREE.Raycaster();
+
+  private pointer(type: 'down' | 'move' | 'up' | 'hover', e: PointerEvent) {
+    const el = this.renderer.domElement;
+    const r = el.getBoundingClientRect();
+    const hit = this.pick(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    if (type === 'down') {
+      if (e.button !== 0) return;
+      if (this.onPointer('down', hit) === true) {
+        this.dragging = true;
+        this.controls.enabled = false;
+        el.setPointerCapture(e.pointerId);
+        el.style.cursor = 'grabbing';
+      }
+    } else if (type === 'up') {
+      if (!this.dragging) return;
+      this.dragging = false;
+      this.controls.enabled = true;
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      el.style.cursor = '';
+      this.onPointer('up', hit);
+    } else if (type === 'move') {
+      this.onPointer('move', hit);
+    } else if (e.buttons === 0) {
+      el.style.cursor = this.onPointer('hover', hit) === true ? 'grab' : '';
+    }
+  }
+
+  /** The printed outside surface under a point in normalised device coordinates. */
+  pick(x: number, y: number): SurfaceHit | null {
+    this.group.updateMatrixWorld(true);
+    this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
+    const hits = this.raycaster.intersectObjects(this.group.children, false);
+    const hit = hits[0];
+    if (!hit || hit.face?.materialIndex !== 0) return null;
+    const local = hit.point.clone().applyMatrix4(hit.object.matrixWorld.clone().invert());
+    return { panel: hit.object.userData.panel as string, sheet: [local.x, -local.y] };
   }
 
   snapshot(): string {

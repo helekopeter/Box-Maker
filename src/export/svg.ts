@@ -1,4 +1,4 @@
-import { fontStack, placeDecal } from '../artwork';
+import { decalExtent, decalPieces, fontStack } from '../artwork';
 import { chainSegments, computeLines, dashSegments, type Segment } from '../geometry/lines';
 import type { Appearance, Dieline, ExportOptions, Vec2 } from '../types';
 
@@ -56,29 +56,36 @@ export function buildSvg(d: Dieline, look: Appearance, opts: SvgOptions): string
       .map((p) => polyPath(p.poly, true))
       .join(' ');
     body.push(`<path d="${bg}" fill="${esc(look.color)}" stroke="none"/>`);
-    const faces = new Map(d.faces.map((f) => [f.id, f]));
+    const clipped = new Set<string>();
     look.decals.forEach((dc, i) => {
-      const f = faces.get(dc.face);
-      if (!f) return;
-      const pl = placeDecal(f, dc);
-      const clip = `clip-${i}`;
-      defs.push(
-        `<clipPath id="${clip}"><rect x="${n(f.rect.x)}" y="${n(f.rect.y)}" width="${n(f.rect.w)}" height="${n(f.rect.h)}"/></clipPath>`,
-      );
-      const tf = `translate(${n(pl.cx)} ${n(pl.cy)}) rotate(${pl.faceRotation}) translate(${n(pl.lx)} ${n(pl.ly)}) rotate(${n(pl.rotation)})`;
+      const pieces = decalPieces(d, dc);
+      if (!pieces.length) return;
+      const { w, h } = decalExtent(dc);
       let inner = '';
       if (dc.type === 'text' && dc.text) {
         const lines = dc.text.split('\n');
         inner = lines
           .map(
             (line, li) =>
-              `<text x="0" y="${n((li - (lines.length - 1) / 2) * pl.fontSize * 1.15)}" text-anchor="middle" dominant-baseline="central" font-family="${esc(fontStack(dc.font))}" font-size="${n(pl.fontSize)}"${dc.bold ? ' font-weight="bold"' : ''} fill="${esc(dc.color ?? '#000')}">${esc(line)}</text>`,
+              `<text x="0" y="${n((li - (lines.length - 1) / 2) * dc.size * 1.15)}" text-anchor="middle" dominant-baseline="central" font-family="${esc(fontStack(dc.font))}" font-size="${n(dc.size)}"${dc.bold ? ' font-weight="bold"' : ''} fill="${esc(dc.color ?? '#000')}">${esc(line)}</text>`,
           )
           .join('');
       } else if (dc.type === 'image' && dc.src) {
-        inner = `<image href="${esc(dc.src)}" x="${n(-pl.w / 2)}" y="${n(-pl.h / 2)}" width="${n(pl.w)}" height="${n(pl.h)}" preserveAspectRatio="none"/>`;
+        inner = `<image href="${esc(dc.src)}" x="${n(-w / 2)}" y="${n(-h / 2)}" width="${n(w)}" height="${n(h)}" preserveAspectRatio="none"/>`;
       }
-      body.push(`<g clip-path="url(#${clip})"><g transform="${tf}">${inner}</g></g>`);
+      if (!inner) return;
+      // Define the decal once; a decal wrapping over several faces is reused on each of them.
+      const id = `decal-${i}`;
+      defs.push(`<g id="${id}">${inner}</g>`);
+      for (const pc of pieces) {
+        const clip = `clip-${pc.face.id}`;
+        if (!clipped.has(clip)) {
+          clipped.add(clip);
+          const r = pc.face.rect;
+          defs.push(`<clipPath id="${clip}"><rect x="${n(r.x)}" y="${n(r.y)}" width="${n(r.w)}" height="${n(r.h)}"/></clipPath>`);
+        }
+        body.push(`<g clip-path="url(#${clip})"><use href="#${id}" transform="matrix(${pc.matrix.map(n).join(' ')})"/></g>`);
+      }
     });
     if (defs.length) parts.push(`<defs>${defs.join('')}</defs>`);
     parts.push(layer('artwork', 'Artwork (print / engrave)', body.join('')));

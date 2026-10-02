@@ -100,6 +100,18 @@ function rsc(p: BoxParams): Dieline {
       poly: rect(fx0, F + H, fx1 - fx0, F),
       hinge: [[fx0, F + H], [fx1, F + H]],
     });
+    // The outer (major) flaps form the visible top and bottom, half each.
+    if (wall.major) {
+      const front = wall.id === 'front';
+      faces.push({
+        id: `${wall.id}-top`, label: `Top (${wall.id} half)`,
+        rect: { x: fx0, y: 0, w: fx1 - fx0, h: F }, rotation: front ? 0 : 180,
+      });
+      faces.push({
+        id: `${wall.id}-bottom`, label: `Bottom (${wall.id} half)`,
+        rect: { x: fx0, y: F + H, w: fx1 - fx0, h: F }, rotation: front ? 0 : 180,
+      });
+    }
     x += wall.w;
   });
 
