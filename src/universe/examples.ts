@@ -57,27 +57,27 @@ const t = '2026-10-01T12:00:00.000Z';
 
 export const EXAMPLES: SharedBox[] = [
   {
-    id: 'ex-gable', created_at: t, example: true, kind: 'simple', thumbnail: '',
+    id: 'ex-gable', created_at: t, example: true, kind: 'simple', thumbnail: '', tags: ['party', 'gift', 'handle'], likes: 0,
     name: 'Party favour box', author: 'Box Maker', description: 'Gable top with a carry handle.',
     data: { kind: 'simple', params: { style: 'gable', length: 80, width: 80, height: 90, thickness: 1, glueTab: 12, lidHeight: 30, lidClearance: 1 }, look: { color: '#ff94ec', decals: [] } },
   },
   {
-    id: 'ex-rsc', created_at: t, example: true, kind: 'simple', thumbnail: '',
+    id: 'ex-rsc', created_at: t, example: true, kind: 'simple', thumbnail: '', tags: ['shipping', 'storage'], likes: 0,
     name: 'Moving box', author: 'Box Maker', description: 'Classic shipping carton in 4 mm double wall.',
     data: { kind: 'simple', params: { style: 'rsc', length: 300, width: 200, height: 150, thickness: 4, glueTab: 30, lidHeight: 30, lidClearance: 1 }, look: { color: '#c9a46b', decals: [] } },
   },
   {
-    id: 'ex-sleeve', created_at: t, example: true, kind: 'simple', thumbnail: '',
+    id: 'ex-sleeve', created_at: t, example: true, kind: 'simple', thumbnail: '', tags: ['gift', 'drawer'], likes: 0,
     name: 'Gift box with sleeve', author: 'Box Maker', description: 'A tray that slides into a sleeve.',
     data: { kind: 'simple', params: { style: 'sleeve', length: 120, width: 80, height: 30, thickness: 1.5, glueTab: 15, lidHeight: 30, lidClearance: 1 }, look: { color: '#222222', decals: [] } },
   },
   {
-    id: 'ex-pentagon', created_at: t, example: true, kind: 'advanced', thumbnail: '',
+    id: 'ex-pentagon', created_at: t, example: true, kind: 'advanced', thumbnail: '', tags: ['gift', 'geometric'], likes: 0,
     name: 'Pentagon box', author: 'Box Maker', description: 'Drawn in Advanced: five walls with glue tabs at 72°.',
     data: { kind: 'advanced', design: pentagonBox() },
   },
   {
-    id: 'ex-rim', created_at: t, example: true, kind: 'advanced', thumbnail: '',
+    id: 'ex-rim', created_at: t, example: true, kind: 'advanced', thumbnail: '', tags: ['tray', 'storage'], likes: 0,
     name: 'Tray with rolled rim', author: 'Box Maker', description: 'Drawn in Advanced: each wall has a rim folded 180° inwards.',
     data: { kind: 'advanced', design: rimTray() },
   },

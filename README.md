@@ -68,18 +68,38 @@ By default the gallery lives in each visitor's browser (plus a few built-in exam
      description text not null default '' check (char_length(description) <= 500),
      kind text not null check (kind in ('simple', 'advanced')),
      data jsonb not null check (pg_column_size(data) < 2000000),
-     thumbnail text not null default '' check (char_length(thumbnail) < 400000)
+     thumbnail text not null default '' check (char_length(thumbnail) < 400000),
+     tags text[] not null default '{}' check (coalesce(array_length(tags, 1), 0) <= 8),
+     likes integer not null default 0 check (likes >= 0)
    );
    alter table public.boxes enable row level security;
    create policy "Anyone can read boxes" on public.boxes for select using (true);
-   create policy "Anyone can share a box" on public.boxes for insert with check (true);
+   create policy "Anyone can share a box" on public.boxes for insert with check (likes = 0);
+
+   -- Likes go through this function, since visitors can't update rows directly.
+   create function public.like_box(box_id uuid, delta integer) returns integer
+     language sql security definer set search_path = public as $$
+       update boxes set likes = greatest(0, likes + sign(delta)::int) where id = box_id returning likes;
+     $$;
+   grant execute on function public.like_box(uuid, integer) to anon;
    ```
+
+   Set it up before tags and likes existed? Add them with:
+
+   ```sql
+   alter table public.boxes add column tags text[] not null default '{}' check (coalesce(array_length(tags, 1), 0) <= 8);
+   alter table public.boxes add column likes integer not null default 0 check (likes >= 0);
+   drop policy "Anyone can share a box" on public.boxes;
+   create policy "Anyone can share a box" on public.boxes for insert with check (likes = 0);
+   ```
+
+   and then create the `like_box` function above. Until then the gallery works without tags and likes.
 
 2. Give the build the project URL and the **anon** (public) key:
    - **Locally:** put them in `.env.local` as `VITE_SUPABASE_URL=…` and `VITE_SUPABASE_ANON_KEY=…`.
    - **For GitHub Pages:** add them as repository *variables* named `SUPABASE_URL` and `SUPABASE_ANON_KEY` (Settings → Secrets and variables → Actions → Variables).
 
-The anon key is meant to be public. The security comes from the row-level security above, which lets visitors read and add boxes but not change or delete them. Everything loaded from the gallery is validated before use: decal images must be inline, and text is never rendered as HTML. Uploads are anonymous, so for a public site you may want moderation or rate limits (Supabase can add these later).
+The anon key is meant to be public. The security comes from the row-level security above, which lets visitors read and add boxes but not change or delete them (likes only change through `like_box`, one step at a time; the one-like-per-browser rule is kept by the page, so a determined visitor could still inflate counts). Everything loaded from the gallery is validated before use: decal images must be inline, and text is never rendered as HTML. Uploads are anonymous, so for a public site you may want moderation or rate limits (Supabase can add these later).
 
 ## Output layers
 

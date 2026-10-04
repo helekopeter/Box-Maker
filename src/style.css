@@ -323,6 +323,16 @@ input[type='radio'], input[type='checkbox'] { accent-color: var(--accent); }
 .uni-meta h4 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
 .uni-meta p { margin: 3px 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .uni-meta .uni-desc { color: var(--ink); }
+.uni-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.tag { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 999px; padding: 2px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.tag:hover { border-color: var(--accent); color: var(--ink); }
+.tag.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.uni-card .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.uni-card .tag { padding: 1px 7px; font-size: 11px; }
+.like { margin-left: auto; }
+.like.on { color: #e0245e; border-color: #e0245e; }
+.tag-suggest { display: flex; flex-wrap: wrap; gap: 4px; margin: -4px 0 8px; }
+.uni-tools select { width: auto; margin: 0; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 8px; font: inherit; font-size: 13px; color: var(--ink); }
 .uni-actions { display: flex; gap: 6px; padding: 10px 12px 12px; flex-wrap: wrap; }
 
 dialog#share-dialog { border: 1px solid var(--line); border-radius: 14px; padding: 20px; width: min(440px, calc(100vw - 32px)); background: var(--panel); color: var(--ink); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25); }

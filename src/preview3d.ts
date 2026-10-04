@@ -286,9 +286,21 @@ export class BoxPreview {
     return { panel: hit.object.userData.panel as string, sheet: [local.x, -local.y] };
   }
 
+  /** A picture of the finished box (folded, lid on), even if it's mid-animation right now. */
   snapshot(): string {
+    const [progress, lift] = [this.progress, this.lidLift];
+    const moved = progress !== 1 || lift !== 0;
+    if (moved) {
+      [this.progress, this.lidLift] = [1, 0];
+      this.updatePose();
+    }
     this.renderer.render(this.scene, this.camera);
-    return this.renderer.domElement.toDataURL('image/png');
+    const url = this.renderer.domElement.toDataURL('image/png');
+    if (moved) {
+      [this.progress, this.lidLift] = [progress, lift];
+      this.updatePose();
+    }
+    return url;
   }
 }
 

@@ -5,7 +5,10 @@ import { dielineFor } from '../simple';
 import type { Decal, Dieline, ExportOptions } from '../types';
 import { $, download, el, toast } from '../ui';
 import { EXAMPLES } from './examples';
-import { createStore, sanitizeBox, type BoxStore, type NewBox, type ShareData, type SharedBox } from './store';
+import {
+  cleanTags, createStore, likedBoxes, matches, sanitizeBox, setLiked, sortBoxes,
+  type BoxStore, type NewBox, type ShareData, type SharedBox, type SortOrder,
+} from './store';
 
 const AUTHOR_KEY = 'box-maker:author';
 
@@ -33,7 +36,11 @@ function sizeOf(data: ShareData): string {
 export class UniverseTab {
   readonly store: BoxStore = createStore();
   private query = '';
+  private tag = '';
+  private sort: SortOrder = 'new';
   private searchTimer = 0;
+  /** Tags seen in the gallery and how often, for the filter chips and share suggestions. */
+  private tagCounts = new Map<string, number>();
 
   constructor(private hooks: UniverseHooks) {
     $('#uni-mode').textContent = this.store.shared
@@ -43,6 +50,10 @@ export class UniverseTab {
       clearTimeout(this.searchTimer);
       this.query = (e.target as HTMLInputElement).value;
       this.searchTimer = window.setTimeout(() => this.refresh(), 250);
+    });
+    $<HTMLSelectElement>('#uni-sort').addEventListener('change', (e) => {
+      this.sort = (e.target as HTMLSelectElement).value as SortOrder;
+      this.refresh();
     });
     $<HTMLInputElement>('#uni-import').addEventListener('change', (e) => this.importFile(e.target as HTMLInputElement));
     $<HTMLFormElement>('#share-form').addEventListener('submit', (e) => e.preventDefault());
@@ -59,13 +70,18 @@ export class UniverseTab {
     status.textContent = 'Loading…';
     let boxes: SharedBox[] = [];
     try {
-      boxes = await this.store.list(this.query);
+      boxes = await this.store.list({ query: this.query, tag: this.tag || undefined, sort: this.sort });
       status.textContent = '';
     } catch (err) {
       status.textContent = (err as Error).message;
     }
-    const q = this.query.toLowerCase();
-    const examples = EXAMPLES.filter((b) => !q || `${b.name} ${b.description}`.toLowerCase().includes(q));
+    const examples = sortBoxes(EXAMPLES.filter((b) => matches(b, { query: this.query, tag: this.tag })), this.sort);
+    // Count tags over everything shown (kept while a tag filter narrows the list).
+    if (!this.tag) {
+      this.tagCounts = new Map();
+      for (const b of [...boxes, ...examples]) for (const t of b.tags) this.tagCounts.set(t, (this.tagCounts.get(t) ?? 0) + 1);
+    }
+    this.renderTags();
     grid.innerHTML = '';
     if (boxes.length) {
       grid.append(el('h3', { className: 'uni-heading', textContent: this.store.shared ? 'Shared boxes' : 'Your boxes' }));
@@ -77,7 +93,29 @@ export class UniverseTab {
       grid.append(el('h3', { className: 'uni-heading', textContent: 'Examples' }));
       for (const b of examples) grid.append(this.card(b));
     }
-    if (!boxes.length && !examples.length) grid.append(el('p', { className: 'hint uni-empty', textContent: `No boxes match “${this.query}”.` }));
+    if (!boxes.length && !examples.length) {
+      const what = [this.query && `“${this.query}”`, this.tag && `the tag “${this.tag}”`].filter(Boolean).join(' and ');
+      grid.append(el('p', { className: 'hint uni-empty', textContent: `No boxes match ${what}.` }));
+    }
+  }
+
+  /** The most used tags as filter chips (the active one first). */
+  private renderTags() {
+    const host = $('#uni-tags');
+    host.innerHTML = '';
+    const top = [...this.tagCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t).slice(0, 16);
+    if (this.tag && !top.includes(this.tag)) top.unshift(this.tag);
+    for (const t of top) {
+      const on = t === this.tag;
+      const chip = el('button', { className: `tag${on ? ' on' : ''}`, textContent: on ? `#${t} ✕` : `#${t}`, title: on ? 'Show all boxes' : `Only boxes tagged “${t}”` });
+      chip.addEventListener('click', () => this.filterTag(on ? '' : t));
+      host.append(chip);
+    }
+  }
+
+  private filterTag(tag: string) {
+    this.tag = tag;
+    this.refresh();
   }
 
   private card(b: SharedBox): HTMLElement {
@@ -101,6 +139,15 @@ export class UniverseTab {
       el('p', { className: 'uni-size', textContent: sizeOf(b.data) }),
     );
     if (b.description) meta.append(el('p', { className: 'uni-desc', textContent: b.description }));
+    if (b.tags.length) {
+      const tags = el('div', { className: 'tags' });
+      for (const t of b.tags) {
+        const chip = el('button', { className: `tag${t === this.tag ? ' on' : ''}`, textContent: `#${t}`, title: `More boxes tagged “${t}”` });
+        chip.addEventListener('click', () => this.filterTag(t === this.tag ? '' : t));
+        tags.append(chip);
+      }
+      meta.append(tags);
+    }
     const actions = el('div', { className: 'uni-actions' });
     const btn = (text: string, cls: string, fn: () => void) => {
       const x = el('button', { className: cls, textContent: text });
@@ -114,6 +161,7 @@ export class UniverseTab {
       download(new Blob([svg], { type: 'image/svg+xml' }), `${slug(b.name)}.svg`);
     });
     btn('File', 'btn small', () => exportFile(b));
+    if (!b.example) actions.append(this.likeButton(b));
     if (!b.example && this.store.remove) {
       btn('Delete', 'btn small ghost', async () => {
         if (!confirm(`Delete “${b.name}” from this browser?`)) return;
@@ -123,6 +171,39 @@ export class UniverseTab {
     }
     card.append(thumb, meta, actions);
     return card;
+  }
+
+  /** ♥ with the count; one like per box per browser, click again to take it back. */
+  private likeButton(b: SharedBox): HTMLElement {
+    let liked = likedBoxes().has(b.id);
+    const x = el('button', { className: 'btn small like' });
+    const draw = () => {
+      x.classList.toggle('on', liked);
+      x.textContent = `${liked ? '♥' : '♡'} ${b.likes}`;
+      x.title = liked ? 'You like this. Click to take it back.' : 'Like this box';
+      x.setAttribute('aria-pressed', String(liked));
+    };
+    x.addEventListener('click', async () => {
+      const next = !liked;
+      // Show it straight away; put it back if saving fails.
+      liked = next;
+      b.likes = Math.max(0, b.likes + (next ? 1 : -1));
+      draw();
+      x.disabled = true;
+      try {
+        b.likes = await this.store.like(b.id, next);
+        setLiked(b.id, next);
+      } catch (e) {
+        liked = !next;
+        b.likes = Math.max(0, b.likes + (next ? -1 : 1));
+        toast((e as Error).message);
+      } finally {
+        x.disabled = false;
+        draw();
+      }
+    });
+    draw();
+    return x;
   }
 
   /**
@@ -135,6 +216,21 @@ export class UniverseTab {
     const name = $<HTMLInputElement>('#share-name');
     const author = $<HTMLInputElement>('#share-author');
     const desc = $<HTMLTextAreaElement>('#share-desc');
+    const tags = $<HTMLInputElement>('#share-tags');
+    tags.value = '';
+    // Suggestions: what the box is, plus tags others use most.
+    const suggest = $('#share-tag-suggest');
+    suggest.innerHTML = '';
+    const style = data.kind === 'simple' ? STYLE_INFO[data.params.style].name.toLowerCase() : '';
+    const ideas = [...new Set([style, ...[...this.tagCounts.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t)])].filter(Boolean).slice(0, 8);
+    for (const t of ideas) {
+      const chip = el('button', { type: 'button', className: 'tag', textContent: `+ ${t}` });
+      chip.addEventListener('click', () => {
+        tags.value = cleanTags([...cleanTags(tags.value), t]).join(', ');
+        chip.remove();
+      });
+      suggest.append(chip);
+    }
     const img = $<HTMLImageElement>('#share-thumb');
     const err = $('#share-error');
     name.value = defaults.name;
@@ -167,6 +263,7 @@ export class UniverseTab {
           kind: data.kind,
           data,
           thumbnail: await thumbnail,
+          tags: cleanTags(tags.value),
         };
         await this.store.add(box);
         dialog.close();
@@ -178,14 +275,14 @@ export class UniverseTab {
         submit.disabled = false;
       }
     };
-    submit.onclick = onSubmit;
+    // The Share button submits the form (as does Enter), so this runs once either way.
     form.onsubmit = (e) => {
       e.preventDefault();
       onSubmit();
     };
     $('#share-cancel').onclick = () => dialog.close();
     $('#share-file').onclick = () =>
-      exportFile({ name: name.value.trim() || 'box', author: author.value.trim(), description: desc.value.trim(), kind: data.kind, data });
+      exportFile({ name: name.value.trim() || 'box', author: author.value.trim(), description: desc.value.trim(), kind: data.kind, data, tags: cleanTags(tags.value) });
     dialog.showModal();
     thumbnail.then((t) => (img.src = t));
   }
@@ -207,8 +304,8 @@ export class UniverseTab {
 }
 
 /** Saves a box as a .box.json file that can be imported again. */
-export function exportFile(b: Pick<SharedBox, 'name' | 'author' | 'description' | 'kind' | 'data'>) {
-  const file = { app: 'box-maker', version: 1, name: b.name, author: b.author, description: b.description, kind: b.kind, data: b.data };
+export function exportFile(b: Pick<SharedBox, 'name' | 'author' | 'description' | 'kind' | 'data' | 'tags'>) {
+  const file = { app: 'box-maker', version: 1, name: b.name, author: b.author, description: b.description, tags: b.tags, kind: b.kind, data: b.data };
   download(new Blob([JSON.stringify(file, null, 1)], { type: 'application/json' }), `${slug(b.name)}.box.json`);
 }
 

@@ -266,10 +266,12 @@
           <p class="hint" id="uni-mode"></p>
         </div>
         <div class="uni-tools">
-          <input type="search" id="uni-search" placeholder="Search boxes…" aria-label="Search boxes" />
+          <input type="search" id="uni-search" placeholder="Search boxes or tags…" aria-label="Search boxes" />
+          <select id="uni-sort" aria-label="Sort"><option value="new">Newest</option><option value="liked">Most liked</option></select>
           <label class="btn file">Import file<input type="file" id="uni-import" accept=".json,application/json" /></label>
         </div>
       </div>
+      <div class="uni-tags" id="uni-tags"></div>
       <p class="hint" id="uni-status"></p>
       <div class="uni-grid" id="uni-grid"></div>
     </main>
@@ -281,6 +283,8 @@
         <label>Name<input id="share-name" maxlength="80" required /></label>
         <label>Your name<input id="share-author" maxlength="40" placeholder="Anonymous" /></label>
         <label>Description<textarea id="share-desc" maxlength="500" rows="3" placeholder="What is it for? Any tips for folding it?"></textarea></label>
+        <label>Tags<input id="share-tags" maxlength="200" placeholder="e.g. gift, christmas, jewellery" /></label>
+        <div class="tag-suggest" id="share-tag-suggest"></div>
         <p class="hint" id="share-where"></p>
         <p class="error" id="share-error"></p>
         <div class="btn-row end">
