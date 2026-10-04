@@ -15,10 +15,13 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
    - Open tray
    - Tray + lid
    - Tray + sleeve
+   - Pizza box (one-piece FEFCO 0427 style mailer, no glue: double side walls lock the corners, the lid tucks in at the front)
+   - Matchbox (a glue-free double-walled drawer in a sleeve, with thumb notches at both ends)
+   - Hexagonal gift box (six walls with hexagonal tuck lids; *Across* is the inside width across the flat sides)
    - **Shape Builder** (the big card at the end): design your own shape instead (see below)
 2. **Enter the inside dimensions** (mm or inches) and pick the material: paper, thin card, cardboard, grey board, corrugated or double wall, or a custom thickness. Panels are enlarged automatically to make room for the material.
-3. **Choose a colour and add decals** (text or uploaded images). Drag them around on the 3D box. A decal that hangs over an edge wraps onto the next side like a sticker. If the two sides aren't next to each other on the flat sheet (across the glue seam, a lid edge, or the two top flaps), it is split automatically in the cut file.
-4. **Download an SVG or PDF.** The page is sized 1:1 to the sheet in millimetres. Set your **laser bed** size under Export (it's shared by every tab), and each tab warns when the cutting layout won't fit.
+3. **Choose a colour, a texture and decals** (text or uploaded images). For a texture, download the **Template PDF** (the sheet at its real size, with the cut and fold lines and each side's name written the right way up), paint over it in Photoshop or any image editor, keep the page size, save it as PNG or JPG and **Import** it. It shows on the 3D box and goes into the artwork of the export. If you change the box's size afterwards it's stretched to fit, and you get a warning. Decals: Drag them around on the 3D box. A decal that hangs over an edge wraps onto the next side like a sticker. If the two sides aren't next to each other on the flat sheet (across the glue seam, a lid edge, or the two top flaps), it is split automatically in the cut file.
+4. **Download an SVG or PDF.** The page is sized 1:1 to the sheet in millimetres. Set your **laser bed** size under Export (it's shared by every tab), and each tab warns when the cutting layout won't fit. Set **Copies** to cut several at once: they're packed onto bed-sized sheets (turned where that fits more in), and the panel says how many fit per sheet. A PDF gets a page per sheet, SVG a file per sheet.
 
 **Edit in Advanced** turns the current box into an Advanced design, keeping every panel, fold, colour and decal, so you can keep changing it freehand. For two-piece boxes only the tray carries over.
 
@@ -44,8 +47,12 @@ Draw a box from scratch. You start with a single square (the base, which lies on
 - **Add panels:** click **+** on any free edge of the base or a wall to add a wall (off the base) or a flap (off a wall). Walls are structural and can carry more panels; flaps and glue tabs are end pieces, so they have no **+**.
 - **Edit a panel:** select it to set its depth, how much it narrows at each end (symmetric by default; hold Shift while dragging a corner handle to move one side), its inset along the edge, and its type (wall, flap or glue tab). You can also drag its orange handles.
 - **Fold angle:** positive folds inwards, negative outwards; there are quick presets for 90° in, 90° out, flat and 180° over. **Fold order** sets what folds first, and **layer** decides which panel ends up on top where panels overlap once folded (it's ignored for panels that don't lie against anything).
-- **Pen tool (P):** click a free edge, click some points, then click the same edge again to make a free-form flap.
-- **Cut-out tool (C):** click inside a panel, draw a shape, and click the first point again (or press Enter).
+- **Pen tool (P):** click a free edge, click some points, then click the same edge again to make a free-form flap. Click for a corner; press and drag for a smooth curve. Several panels can sit side by side on one edge.
+- **Cut-out tool (C):** click inside a panel, draw a shape (corners or curves, as with the pen), and click the first point again (or press Enter).
+- **Measure tool (M):** click two points or drag. It snaps to corners and edges and shows the distance, its horizontal and vertical parts and the angle.
+- **Sizes and angles:** the selected panel shows its edge lengths. Double-click a length or any fold angle to type a new value.
+- **Duplicate (Ctrl+D)** copies a panel and everything on it; click a free edge to place the copy (press M to mirror it first). **Mirror copy** puts a mirrored copy at the other end of the same edge, such as a chair's second leg, and **Flip** mirrors a panel where it is.
+- **Tab & slot joints:** where an edge of the selected panel stands on another panel once folded (a divider on a base, say), this adds tabs along that edge and cuts matching slots where they land, so the joint holds without glue.
 - **Free-form shape:** turns any panel, including the base, into editable corners. Drag them, double-click an edge to add a corner, and select a corner and press Delete to remove it.
 - **Undo/redo** with Ctrl+Z and Ctrl+Shift+Z. Tools are at the top left of the design panel; snapping, zoom and Fit at the top right.
 - Panels that would overlap on the sheet are shown in red.
@@ -53,7 +60,7 @@ Draw a box from scratch. You start with a single square (the base, which lies on
 
 ## Box Universe
 
-A gallery of shared boxes. **Share** (top right) saves the current box with a 3D thumbnail. From the gallery, anyone can open it in the tab it was made in, download its SVG, or save it as a `.box.json` file that can be imported again.
+A gallery of shared boxes. **Share** (top right) saves the current box with a 3D thumbnail and up to eight tags. From the gallery, anyone can open it in the tab it was made in, download its SVG, or save it as a `.box.json` file that can be imported again. The most used tags are filter chips above the gallery (search matches tags too), each shared box can be liked once per browser, and the gallery can be sorted by newest or most liked.
 
 By default the gallery lives in each visitor's browser (plus a few built-in examples). To make it shared between everyone, connect a free [Supabase](https://supabase.com) project:
 
@@ -126,11 +133,13 @@ The project uses Vite, TypeScript and three.js, with jsPDF for PDF export (loade
 
 - `src/geometry/styles.ts`: dieline generators. Each box is a tree of panels joined by hinges.
 - `src/geometry/cartons.ts`: folding cartons, built from a four-wall body plus a closure at each end (tuck, seal, snap-lock, auto-lock, gable).
+- `src/geometry/extra.ts`: the pizza box, matchbox and hexagonal gift box (the first two share a glue-free double-walled tray).
 - `src/geometry/fold.ts`: turns that tree into 3D transforms for any fold progress.
 - `src/geometry/lines.ts`: derives cut and fold lines from the panels.
 - `src/main.ts`: the tab shell. `src/simple.ts` is the Simple tab, `src/advanced/` the editor (`model.ts` is the design format, `convert.ts` converts Simple boxes, `editor.ts` is the 2D editor), and `src/universe/` the gallery and its storage.
 - `src/geometry/surface.ts`: works out which faces touch on the assembled box and how to unfold one next to another, for wrapping decals.
-- `src/artwork.ts`: renders colour and decals, which are used as the 3D texture and the PDF artwork.
-- `src/export/`: SVG and PDF writers.
+- `src/artwork.ts`: renders colour, texture and decals, which are used as the 3D texture and the PDF artwork. `src/texture.ts` holds the texture controls.
+- `src/export/`: SVG and PDF writers, the texture template, and `sheets.ts`, which packs several copies onto laser-bed-sized sheets.
+- `src/advanced/curves.ts`: turns pen points with handles into the cut outline.
 
 `.github/workflows/pages.yml` deploys the app to GitHub Pages on every push to `main`. To use it, enable Pages with source "GitHub Actions" in the repository settings.
