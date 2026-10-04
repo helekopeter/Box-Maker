@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BASE_ID, clone, copySubtree, deleteVertex, flipPanel, freeSpans, mirrorCopy, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
-  removePanel, sanitizeDesign, toDieline, type AdvancedDesign,
+  removePanel, sanitizeDesign, setEdgeLength, toDieline, type AdvancedDesign,
 } from '../src/advanced/model';
 import { foldedBounds } from '../src/geometry/fold';
 import { chainSegments, computeLines } from '../src/geometry/lines';
@@ -257,5 +257,28 @@ describe('walls vs flaps', () => {
     expect([root.inset0, root.inset1]).toEqual([45, 45]);
     expect(d.panels.filter((p) => p.parent === id).length).toBe(1);
     expect(layout(d).size).toBe(1 + d.panels.length);
+  });
+
+  it('sets edge lengths typed into the dimension labels', () => {
+    const d = tray();
+    const wall = d.panels[0]; // on the base's top edge
+    const len = (id: string, k: number) => {
+      const poly = layout(d).get(id)!.poly;
+      const [a, b] = [poly[k], poly[(k + 1) % poly.length]];
+      return Math.hypot(b[0] - a[0], b[1] - a[1]);
+    };
+    expect(setEdgeLength(d, BASE_ID, 0, 120)).toBe(true);
+    expect(d.base.width).toBe(120);
+    expect(setEdgeLength(d, wall.id, 1, 35)).toBe(true);
+    expect(len(wall.id, 1)).toBeCloseTo(35, 6);
+    expect(setEdgeLength(d, wall.id, 2, 100)).toBe(true);
+    expect(len(wall.id, 2)).toBeCloseTo(100, 6);
+    expect(wall.shape.type === 'rect' && wall.shape.depth).toBeCloseTo(35, 6); // narrowing keeps the depth
+    expect(setEdgeLength(d, wall.id, 0, 80)).toBe(true);
+    expect(len(wall.id, 0)).toBeCloseTo(80, 6);
+    makeCustom(d, wall.id);
+    expect(setEdgeLength(d, wall.id, 2, 50)).toBe(true);
+    expect(len(wall.id, 2)).toBeCloseTo(50, 6);
+    expect(setEdgeLength(d, wall.id, 0, 60)).toBe(true);
   });
 });

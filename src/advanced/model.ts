@@ -574,6 +574,55 @@ export function moveVertex(d: AdvancedDesign, id: string, k: number, to: Vec2) {
   p.shape.points[k - 2] = to;
 }
 
+/**
+ * Makes edge `k` of a panel `length` mm long, the way you'd expect from typing a size:
+ * the base's width or height, a wall's hinge (by moving its end along the parent edge),
+ * its depth (side edges) or how much it narrows (far edge); on free-form outlines the
+ * edge's end corner slides along the edge. Returns false if that edge can't be set.
+ */
+export function setEdgeLength(d: AdvancedDesign, id: string, k: number, length: number): boolean {
+  const pl = layout(d).get(id);
+  if (!pl || !(length > 0.5)) return false;
+  const N = pl.poly.length;
+  if (id === BASE_ID && !d.base.points) {
+    if (k % 2 === 0) d.base.width = length;
+    else d.base.height = length;
+    return true;
+  }
+  const p = d.panels.find((x) => x.id === id);
+  if (p && k === 0) {
+    // The hinge: keep its start, move its end (as far as the parent edge allows).
+    const parent = layout(d).get(p.parent);
+    if (!parent) return false;
+    const [a, b] = edgeOf(parent.poly, p.edge);
+    p.inset1 = Math.max(0, len(sub(b, a)) - p.inset0 - length);
+    return true;
+  }
+  if (p?.shape.type === 'rect') {
+    const s = p.shape;
+    if (k === 2) {
+      const t = (pl.hinge - length) / 2;
+      s.taper0 = s.taper1 = t;
+    } else {
+      const t = k === 1 ? s.taper1 : s.taper0;
+      if (length <= Math.abs(t)) return false;
+      s.depth = Math.sqrt(length * length - t * t);
+    }
+    return true;
+  }
+  // Free-form: slide one end of the edge along it (never a hinge corner).
+  const pts = editablePoints(d, id)!;
+  const i = k, j = (k + 1) % N;
+  const fixed = id === BASE_ID ? [] : [0, 1];
+  const [keep, move] = !fixed.includes(j) ? [i, j] : !fixed.includes(i) ? [j, i] : [-1, -1];
+  if (move < 0) return false;
+  const dir = sub(pts[move], pts[keep]);
+  const l = len(dir);
+  if (l < 1e-6) return false;
+  moveVertex(d, id, move, add(pts[keep], mul(dir, length / l)));
+  return true;
+}
+
 /** Deep copy (designs are plain JSON). */
 export function clone<T>(x: T): T {
   return JSON.parse(JSON.stringify(x)) as T;

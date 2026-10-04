@@ -280,7 +280,13 @@ input[type='radio'], input[type='checkbox'] { accent-color: var(--accent); }
 .adv-svg .pnl.bad { fill: color-mix(in srgb, #e5341d 45%, var(--panel)); }
 .adv-svg .ln-cut { stroke: var(--cut); stroke-width: 1.6; fill: none; vector-effect: non-scaling-stroke; pointer-events: none; stroke-linejoin: round; }
 .adv-svg .ln-fold { stroke: var(--score); stroke-width: 1.4; stroke-dasharray: 6 4; fill: none; vector-effect: non-scaling-stroke; pointer-events: none; }
-.adv-svg .angle { fill: var(--score); font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; opacity: 0.8; }
+.adv-svg .angle { fill: var(--score); font-weight: 700; text-anchor: middle; dominant-baseline: central; opacity: 0.8; cursor: text; }
+.adv-svg .angle:hover, .adv-svg .dim:hover { opacity: 1; text-decoration: underline; }
+.adv-svg .dim { fill: var(--ink); font-weight: 600; text-anchor: middle; dominant-baseline: central; cursor: text; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; opacity: 0.85; }
+.adv-svg .measure { stroke: #7a3cff; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.adv-svg .measure-pt { fill: #fff; stroke: #7a3cff; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.adv-svg .measure-label { fill: #7a3cff; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+.inline-edit { position: absolute; transform: translate(-50%, -50%); width: 72px; padding: 3px 6px; font: inherit; font-size: 13px; font-weight: 700; text-align: center; border: 2px solid var(--accent); border-radius: 6px; background: var(--panel); color: var(--ink); z-index: 3; }
 .adv-svg .add { cursor: pointer; }
 .adv-svg .add circle { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .adv-svg .add path { stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; }

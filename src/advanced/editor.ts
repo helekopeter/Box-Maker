@@ -2,11 +2,11 @@ import { computeLines } from '../geometry/lines';
 import type { Dieline, Vec2 } from '../types';
 import {
   BASE_ID, deleteVertex, edgeOf, editablePoints, insertVertex, layout, makeChild, moveVertex,
-  canCarry, clone, copySubtree, flipPanel, mirrorCopy, overlaps, rawPanels, subtree, toLocal, freeSpans,
+  canCarry, clone, copySubtree, setEdgeLength, flipPanel, mirrorCopy, overlaps, rawPanels, subtree, toLocal, freeSpans,
   type AdvancedDesign, type Placed,
 } from './model';
 
-export type Tool = 'select' | 'pen' | 'cut';
+export type Tool = 'select' | 'pen' | 'cut' | 'measure';
 
 interface View {
   scale: number; // px per mm
@@ -56,6 +56,8 @@ export class Editor {
   private drag: Drag | null = null;
   private pen: PenState | null = null;
   private cut: CutState | null = null;
+  /** The measure tool's line (kept on screen until the next measurement). */
+  private measure: { a: Vec2; b: Vec2; done: boolean } | null = null;
   /** Placing a copy of a panel: click a free edge to drop it there. */
   private placing: { id: string; mirrored: boolean } | null = null;
   private hoverEdge: { panel: string; edge: number; at: Vec2; span?: [number, number] } | null = null;
@@ -101,6 +103,7 @@ export class Editor {
     this.pen = null;
     this.cut = null;
     this.placing = null;
+    this.measure = null;
     this.hint();
     this.render();
   }
@@ -280,7 +283,7 @@ export class Editor {
       this.deleteSelection();
       return true;
     }
-    const tools: Record<string, Tool> = { v: 'select', p: 'pen', c: 'cut' };
+    const tools: Record<string, Tool> = { v: 'select', p: 'pen', c: 'cut', m: 'measure' };
     if (!mod && tools[e.key.toLowerCase()]) {
       this.setTool(tools[e.key.toLowerCase()]);
       return true;
@@ -381,6 +384,13 @@ export class Editor {
     if (this.tool === 'pen') return this.penClick(p);
     if (this.tool === 'cut') return this.cutClick(p);
     if (this.placing) return this.placeClick(p);
+    if (this.tool === 'measure') {
+      const q = this.snapMeasure(p);
+      if (!this.measure || this.measure.done) this.measure = { a: q, b: q, done: false };
+      else this.measure = { ...this.measure, b: q, done: true };
+      this.render();
+      return;
+    }
 
     const add = target.closest('[data-add]');
     if (add) {
@@ -440,10 +450,19 @@ export class Editor {
       this.render();
     } else if (this.tool === 'cut' && this.cut) {
       this.render();
+    } else if (this.tool === 'measure') {
+      if (this.measure && !this.measure.done) this.measure.b = this.snapMeasure(p);
+      this.render();
     }
   }
 
   private onUp(e: PointerEvent) {
+    // Measuring works by dragging as well as by clicking both ends.
+    const m = this.measure;
+    if (this.tool === 'measure' && m && !m.done && Math.hypot(m.b[0] - m.a[0], m.b[1] - m.a[1]) * this.view.scale > 6) {
+      m.done = true;
+      this.render();
+    }
     if (this.drag) {
       if (this.svg.hasPointerCapture(e.pointerId)) this.svg.releasePointerCapture(e.pointerId);
       const wasEdit = this.drag.kind !== 'pan';
@@ -454,7 +473,12 @@ export class Editor {
   }
 
   private onDouble(e: MouseEvent) {
-    if (this.tool !== 'select' || !this.selected) return;
+    if (this.tool !== 'select') return;
+    // Double-click a fold angle or a length to type a new value. (The SVG is redrawn on
+    // every click, so look up what's under the pointer now.)
+    const label = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-angle],[data-len]');
+    if (label) return this.editLabel(label);
+    if (!this.selected) return;
     const p = this.toWorld(e);
     const pl = this.placed.get(this.selected);
     if (!pl) return;
@@ -541,6 +565,74 @@ export class Editor {
       return sx < 10 || sy < 10 || sx > r.width - 10 || sy > r.height - 10;
     });
     if (off) this.fit();
+  }
+
+  /** Measure tool snapping: corners first, then edges, then the grid. */
+  private snapMeasure(p: Vec2): Vec2 {
+    const tol = 8 / this.view.scale;
+    let best: Vec2 | null = null;
+    let bd = tol;
+    for (const pl of this.placed.values())
+      for (const q of [pl.poly, ...pl.holes].flat()) {
+        const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        if (d < bd) (best = q), (bd = d);
+      }
+    if (best) return [best[0], best[1]];
+    const hit = this.nearestEdge(p, false);
+    if (hit && hit.d < 6 / this.view.scale) return hit.at;
+    return this.snapPt(p);
+  }
+
+  /** An input over a label for typing a new fold angle or length. */
+  private editLabel(label: Element) {
+    const angleId = label.getAttribute('data-angle');
+    const k = label.getAttribute('data-len');
+    const id = angleId ?? this.selected;
+    if (!id) return;
+    const panel = this.design.panels.find((x) => x.id === id);
+    if (angleId && !panel) return;
+    const edgeLen = () => {
+      const [a, b] = edgeOf(this.placed.get(id)!.poly, +k!);
+      return Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) * 10) / 10;
+    };
+    const value = angleId ? Math.round(panel!.angle) : edgeLen();
+    const r = label.getBoundingClientRect();
+    const host = this.host.getBoundingClientRect();
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'inline-edit';
+    input.value = String(value);
+    input.style.left = `${r.left + r.width / 2 - host.left}px`;
+    input.style.top = `${r.top + r.height / 2 - host.top}px`;
+    if (angleId) (input.min = '-180'), (input.max = '180');
+    else input.min = '1';
+    this.host.append(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const close = (commit: boolean) => {
+      if (done) return;
+      done = true;
+      input.remove();
+      const v = parseFloat(input.value);
+      if (!commit || !Number.isFinite(v) || v === value) return;
+      this.checkpoint();
+      if (angleId) {
+        panel!.angle = Math.max(-180, Math.min(180, v));
+        delete panel!.motion; // a custom fold path no longer matches the new angle
+      } else if (!setEdgeLength(this.design, id, +k!, v)) {
+        this.undoStack.pop();
+        return;
+      }
+      this.changed();
+      this.onSelect();
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') close(true);
+      if (e.key === 'Escape') close(false);
+      e.stopPropagation();
+    });
+    input.addEventListener('blur', () => close(true));
   }
 
   /** Where a copy being placed would start on the hovered free stretch (null: no room). */
@@ -671,13 +763,14 @@ export class Editor {
 
   private hint() {
     const hints: Record<Tool, string> = {
-      select: '+ adds a wall or flap (only walls carry panels) · Shift-drag: one side · double-click edge: add corner · Ctrl+D: duplicate · Ctrl+Z: undo',
+      select: '+ adds a wall or flap · double-click an angle or length to type it · double-click an edge: add corner · Ctrl+D: duplicate · Ctrl+Z: undo',
       pen: this.pen
         ? 'Click to add points. Click the starting edge again to finish (Backspace undoes a point, Esc cancels).'
         : 'Click a free edge of a wall (or the base) to start drawing a flap from it.',
       cut: this.cut
         ? 'Click to add points. Click the first point or press Enter to finish the cut-out.'
         : 'Click inside a panel to start a cut-out.',
+      measure: 'Click two points (or drag) to measure. Snaps to corners and edges.',
     };
     this.onToolHint(
       this.placing
@@ -739,11 +832,11 @@ export class Editor {
       const mid: Vec2 = [pl.origin[0] + (pl.U[0] * pl.hinge) / 2, pl.origin[1] + (pl.U[1] * pl.hinge) / 2];
       const off = px(18); // clear of the resize handles that sit on edge midpoints
       const at: Vec2 = [mid[0] + pl.V[0] * off, mid[1] + pl.V[1] * off];
-      parts.push(`<text class="angle" x="${n(at[0])}" y="${n(at[1])}" font-size="${n(px(10))}">${Math.round(pl.panel.angle)}°</text>`);
+      parts.push(`<text class="angle" data-angle="${pl.id}" x="${n(at[0])}" y="${n(at[1])}" font-size="${n(px(10))}"><title>Double-click to change</title>${Math.round(pl.panel.angle)}°</text>`);
     }
 
     if (this.tool === 'select' && !this.placing) parts.push(...this.addButtons(px));
-    if (this.tool === 'select' && this.selected) parts.push(...this.handles(px));
+    if (this.tool === 'select' && this.selected && !this.placing) parts.push(...this.dimensions(px), ...this.handles(px));
     parts.push(...this.toolOverlay(px));
 
     this.svg.innerHTML = `<g transform="translate(${n(tx)} ${n(ty)}) scale(${n(scale)})">${parts.join('')}</g>`;
@@ -770,6 +863,55 @@ export class Editor {
           );
         }
       }
+    }
+    return out;
+  }
+
+  /** Edge lengths around the selected panel (double-click one to type a new length). */
+  private dimensions(px: (v: number) => number): string[] {
+    const pl = this.placed.get(this.selected!);
+    if (!pl) return [];
+    const out: string[] = [];
+    for (let k = 0; k < pl.poly.length; k++) {
+      const [a, b] = edgeOf(pl.poly, k);
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (L * this.view.scale < 28) continue;
+      const nrm = outward(pl, k);
+      // Inside the panel, clear of the + buttons outside and the handles on the edge. The
+      // hinge's label moves along a bit to make room for the fold angle in the middle.
+      const hinge = k === 0 && !!pl.panel;
+      const t = hinge ? 0.22 : 0.5;
+      const off = -px(hinge ? 18 : 16);
+      const at: Vec2 = [a[0] + (b[0] - a[0]) * t + nrm[0] * off, a[1] + (b[1] - a[1]) * t + nrm[1] * off];
+      out.push(`<text class="dim" data-len="${k}" x="${n(at[0])}" y="${n(at[1])}" font-size="${n(px(10.5))}"><title>Double-click to change</title>${fmt(L)}</text>`);
+    }
+    return out;
+  }
+
+  private measureOverlay(px: (v: number) => number): string[] {
+    const m = this.measure;
+    const out: string[] = [];
+    if (!m) {
+      // Show where a click would snap to.
+      if (this.cursor) {
+        const q = this.snapMeasure(this.cursor);
+        out.push(`<circle class="measure-pt" cx="${n(q[0])}" cy="${n(q[1])}" r="${n(px(3.5))}"/>`);
+      }
+      return out;
+    }
+    const { a, b } = m;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const L = Math.hypot(dx, dy);
+    out.push(`<path class="measure" d="M${n(a[0])} ${n(a[1])}L${n(b[0])} ${n(b[1])}"/>`);
+    for (const q of [a, b]) out.push(`<circle class="measure-pt" cx="${n(q[0])}" cy="${n(q[1])}" r="${n(px(3.5))}"/>`);
+    if (L * this.view.scale > 2) {
+      const ang = Math.abs((Math.atan2(-dy, dx) * 180) / Math.PI);
+      const axis = Math.abs(dx) < 0.01 || Math.abs(dy) < 0.01;
+      const text = `${fmt(L)} mm` + (axis ? '' : `  ·  ↔ ${fmt(Math.abs(dx))}  ↕ ${fmt(Math.abs(dy))}  ∠ ${fmt(ang > 90 ? 180 - ang : ang)}°`);
+      const nrm: Vec2 = [-dy / L, dx / L];
+      const at: Vec2 = [(a[0] + b[0]) / 2 + nrm[0] * px(14), (a[1] + b[1]) / 2 + nrm[1] * px(14)];
+      out.push(`<text class="measure-label" x="${n(at[0])}" y="${n(at[1])}" font-size="${n(px(12))}">${text}</text>`);
     }
     return out;
   }
@@ -849,6 +991,7 @@ export class Editor {
         out.push(this.spanPath(this.hoverEdge.panel, this.hoverEdge.edge, this.hoverEdge.span).replace('edge-hover', 'edge-hover no'));
       }
     }
+    if (this.tool === 'measure') out.push(...this.measureOverlay(px));
     if (this.tool === 'cut' && this.cut) {
       const pts = [...this.cut.points, ...(c ? [this.snapPt(c)] : [])];
       out.push(`<path class="draft cut" d="${pts.map((q, i) => `${i ? 'L' : 'M'}${n(q[0])} ${n(q[1])}`).join('')}"/>`);
@@ -858,6 +1001,11 @@ export class Editor {
     }
     return out;
   }
+}
+
+/** A length for labels: whole millimetres, or one decimal when that matters. */
+function fmt(v: number): string {
+  return String(Math.round(v * 10) / 10);
 }
 
 function inPoly([x, y]: Vec2, poly: Vec2[]): boolean {
