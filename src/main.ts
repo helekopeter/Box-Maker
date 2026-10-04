@@ -2,18 +2,16 @@ import './style.css';
 import { fromDieline } from './advanced/convert';
 import { AdvancedTab } from './advanced/tab';
 import { STYLE_INFO } from './geometry/styles';
-import { ShapeTab } from './shape/tab';
 import { SimpleTab } from './simple';
 import type { Decal } from './types';
 import { $, toast } from './ui';
 import type { SharedBox } from './universe/store';
 import { UniverseTab } from './universe/tab';
 
-type TabId = 'simple' | 'shape' | 'advanced' | 'universe';
-const TABS: TabId[] = ['simple', 'shape', 'advanced', 'universe'];
+type TabId = 'simple' | 'advanced' | 'universe';
+const TABS: TabId[] = ['simple', 'advanced', 'universe'];
 
 const simple = new SimpleTab();
-const shape = new ShapeTab();
 const advanced = new AdvancedTab();
 const universe = new UniverseTab({ open: openShared });
 let active: TabId = 'simple';
@@ -28,7 +26,6 @@ function show(tab: TabId) {
   const editing = tab !== 'universe';
   for (const id of ['#reset-btn', '#share-btn', '#dl-svg', '#dl-pdf']) $(id).hidden = !editing;
   if (tab === 'advanced') advanced.shown();
-  if (tab === 'shape') shape.shown();
   if (tab === 'universe') universe.shown();
   if (location.hash !== `#${tab}`) history.replaceState(null, '', `#${tab}`);
 }
@@ -36,7 +33,7 @@ function show(tab: TabId) {
 document.querySelectorAll<HTMLButtonElement>('.tabs button').forEach((b) => b.addEventListener('click', () => show(b.dataset.tab as TabId)));
 
 /** The editing tab the header buttons act on. */
-const current = () => (active === 'advanced' ? advanced : active === 'shape' ? shape : simple);
+const current = () => (active === 'advanced' ? advanced : simple);
 
 $('#dl-svg').addEventListener('click', () => current().downloadSvg());
 $('#dl-pdf').addEventListener('click', async (e) => {
@@ -51,17 +48,14 @@ $('#dl-pdf').addEventListener('click', async (e) => {
 $('#reset-btn').addEventListener('click', () => current().reset());
 
 /** Renders a clean 3D snapshot for the gallery (without the decal selection outline). */
-async function snapshot(tab: SimpleTab | AdvancedTab | ShapeTab): Promise<string> {
-  if ('decals' in tab) tab.decals.select(null);
+async function snapshot(tab: SimpleTab | AdvancedTab): Promise<string> {
+  tab.decals.select(null);
   await new Promise((r) => setTimeout(r, 150));
   return tab.preview.snapshot();
 }
 
 $('#share-btn').addEventListener('click', () => {
-  if (active === 'shape') {
-    // Shapes are shared as the box they unfold into.
-    universe.share({ kind: 'advanced', design: shape.design }, { name: shape.design.name }, () => snapshot(shape));
-  } else if (active === 'advanced') {
+  if (active === 'advanced') {
     universe.share(advanced.share(), { name: advanced.design.name }, () => snapshot(advanced));
   } else {
     const p = simple.state.params;
@@ -74,6 +68,13 @@ $('#share-btn').addEventListener('click', () => {
 /** Simple → Advanced: turn the current ready-made box into a freely editable design. */
 $('#to-advanced').addEventListener('click', () => {
   const p = simple.state.params;
+  if (p.style === 'shape' && simple.shapeResult) {
+    // A built shape already is an Advanced design; its faces (and decals) carry straight over.
+    advanced.open(simple.shapeResult.design, simple.currentDecals);
+    show('advanced');
+    toast('Your shape is now a box in Advanced. Undo (Ctrl+Z) brings back your previous design.');
+    return;
+  }
   const name = `${STYLE_INFO[p.style].name} ${Math.round(p.length)}×${Math.round(p.width)}×${Math.round(p.height)}`;
   const { design, skipped, droppedPieces, faceIds } = fromDieline(simple.dieline, { name, thickness: p.thickness, color: simple.state.look.color });
   const decals: Decal[] = simple.currentDecals
@@ -87,13 +88,6 @@ $('#to-advanced').addEventListener('click', () => {
   ].filter(Boolean);
   toast(notes.length ? notes.join(' ') : 'Now editing in Advanced. Undo (Ctrl+Z) brings back your previous design.');
 });
-
-/** Shape Maker → Advanced: open the unfolded box for further editing. */
-shape.onMakeBox = (design) => {
-  advanced.open(design);
-  show('advanced');
-  toast('Your shape is now a box in Advanced. Undo (Ctrl+Z) brings back your previous design.');
-};
 
 /** Opens a box from the Box Universe in the tab it was made in. */
 function openShared(box: SharedBox) {
@@ -136,7 +130,6 @@ show(tabFromHash());
     simple.decals.render();
   },
   simple,
-  shape,
   advanced,
   universe,
   show,

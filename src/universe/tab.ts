@@ -1,6 +1,7 @@
 import { toDieline } from '../advanced/model';
 import { buildSvg } from '../export/svg';
-import { generateDieline, STYLE_INFO } from '../geometry/styles';
+import { STYLE_INFO } from '../geometry/styles';
+import { dielineFor } from '../simple';
 import type { Decal, Dieline, ExportOptions } from '../types';
 import { $, download, el, toast } from '../ui';
 import { EXAMPLES } from './examples';
@@ -14,7 +15,7 @@ export interface UniverseHooks {
 }
 
 function dielineOf(data: ShareData): { dl: Dieline; color: string; decals: Decal[] } {
-  if (data.kind === 'simple') return { dl: generateDieline(data.params), color: data.look.color, decals: data.look.decals };
+  if (data.kind === 'simple') return { dl: dielineFor(data.params, data.shape, data.look.color), color: data.look.color, decals: data.look.decals };
   return { dl: toDieline(data.design), color: data.design.color, decals: data.design.decals ?? [] };
 }
 

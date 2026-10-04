@@ -15,7 +15,6 @@
       </div>
       <nav class="tabs" role="tablist" aria-label="Mode">
         <button role="tab" data-tab="simple" class="on">Simple</button>
-        <button role="tab" data-tab="shape">Shape<span class="long"> Maker</span></button>
         <button role="tab" data-tab="advanced">Advanced</button>
         <button role="tab" data-tab="universe"><span class="long">Box </span>Universe</button>
       </nav>
@@ -36,15 +35,39 @@
           <button class="btn small to-adv" id="to-advanced" title="Keep editing this box freehand in the Advanced tab">Edit in Advanced ✎</button>
         </section>
 
+        <section class="panel" id="shape-builder" hidden>
+          <h2><span class="step">2</span> Shape</h2>
+          <div class="styles shapes" id="shape-cards"></div>
+          <div id="shape-rect-size" class="grid2">
+            <label>Width (mm)<input type="number" id="shape-width" min="5" step="1" /></label>
+            <label>Depth (mm)<input type="number" id="shape-depth" min="5" step="1" /></label>
+          </div>
+          <div id="shape-poly-size">
+            <label class="row">Size (mm)<input type="number" id="shape-size" min="5" step="1" title="Diameter of the circle the shape fits in" /></label>
+            <label class="row" id="shape-sides-row">Sides<input type="number" id="shape-sides" min="6" max="48" step="1" /></label>
+          </div>
+          <h3 class="sub">Extrude</h3>
+          <div id="shape-levels"></div>
+          <button class="btn small" id="shape-add-level">+ Extrude again</button>
+          <p class="hint">Each level goes up from the top of the one below. Top size under 100% narrows it, over 100% widens it, 0% makes a point (like a roof).</p>
+          <div id="shape-top-panel">
+            <h3 class="sub">Top</h3>
+            <div class="seg wide" id="shape-top">
+              <button data-top="closed">Closed (lid)</button>
+              <button data-top="open">Open</button>
+            </div>
+          </div>
+        </section>
+
         <section class="panel">
           <h2>
-            <span class="step">2</span> Size
+            <span class="step">2</span> <span id="size-title">Size</span>
             <span class="seg" id="units">
               <button data-unit="mm" class="on">mm</button><button data-unit="in">in</button>
             </span>
           </h2>
-          <p class="hint">Inside dimensions, so your stuff fits.</p>
-          <div class="grid3">
+          <p class="hint" id="size-hint">Inside dimensions, so your stuff fits.</p>
+          <div class="grid3" id="size-dims">
             <label>Length<input type="number" id="length" min="1" step="1" /></label>
             <label>Width<input type="number" id="width" min="1" step="1" /></label>
             <label>Height<input type="number" id="height" min="1" step="1" /></label>
@@ -133,85 +156,6 @@
         </div>
       </section>
     </main>
-    <main class="layout tab-panel" id="tab-shape" hidden>
-      <aside class="sidebar">
-        <section class="panel">
-          <h2><span class="step">1</span> Base shape</h2>
-          <div class="styles shapes" id="shape-cards"></div>
-          <div id="shape-rect-size" class="grid2">
-            <label>Width (mm)<input type="number" id="shape-width" min="5" step="1" /></label>
-            <label>Depth (mm)<input type="number" id="shape-depth" min="5" step="1" /></label>
-          </div>
-          <div id="shape-poly-size">
-            <label class="row">Size (mm)<input type="number" id="shape-size" min="5" step="1" title="Diameter of the circle the shape fits in" /></label>
-            <label class="row" id="shape-sides-row">Sides<input type="number" id="shape-sides" min="6" max="48" step="1" /></label>
-          </div>
-        </section>
-
-        <section class="panel">
-          <h2><span class="step">2</span> Extrude</h2>
-          <div id="shape-levels"></div>
-          <button class="btn small" id="shape-add-level">+ Extrude again</button>
-          <p class="hint">Each level goes up from the top of the one below. Top size under 100% narrows it, over 100% widens it, 0% makes a point (like a roof).</p>
-        </section>
-
-        <section class="panel" id="shape-top-panel">
-          <h2><span class="step">3</span> Top</h2>
-          <div class="seg wide" id="shape-top">
-            <button data-top="closed">Closed (lid)</button>
-            <button data-top="open">Open</button>
-          </div>
-        </section>
-
-        <section class="panel">
-          <h2><span class="step">4</span> Material &amp; look</h2>
-          <label class="row">Material
-            <select id="shape-material">
-              <option value="0.3">Paper · 0.3 mm</option>
-              <option value="1">Thin card · 1 mm</option>
-              <option value="1.5">Cardboard · 1.5 mm</option>
-              <option value="2">Grey board · 2 mm</option>
-              <option value="3">Corrugated · 3 mm</option>
-              <option value="4">Double wall · 4 mm</option>
-              <option value="custom">Custom…</option>
-            </select>
-          </label>
-          <label class="row" id="shape-thickness-row" hidden>Thickness (mm)<input type="number" id="shape-thickness" min="0.2" max="10" step="0.1" /></label>
-          <div class="swatches" id="shape-swatches"></div>
-          <label class="row">Custom colour<input type="color" id="shape-color" /></label>
-          <label class="row">Glue tabs (mm)<input type="number" id="shape-tab" min="4" max="40" step="1" /></label>
-        </section>
-
-        <section class="panel">
-          <div class="stats" id="shape-stats"></div>
-          <button class="btn primary make-box" id="shape-make">Make box in Advanced ➜</button>
-          <p class="hint">Opens the unfolded box in the Advanced tab, where you can add flaps, cut-outs and decals.</p>
-        </section>
-      </aside>
-
-      <section class="stage">
-        <div class="viewer" id="shape-viewer">
-          <div class="viewer-controls">
-            <button class="btn round" id="shape-play" title="Fold / unfold">▶</button>
-            <label class="slider">Fold<input type="range" id="shape-fold" min="0" max="1" step="0.001" /></label>
-            <label class="check small"><input type="checkbox" id="shape-spin" /> Spin</label>
-          </div>
-          <div class="viewer-hint">Drag to orbit · scroll to zoom</div>
-        </div>
-        <div class="dieline-card">
-          <div class="dieline-head">
-            <h3>Cutting layout</h3>
-            <div class="legend">
-              <span><i class="sw cut"></i>Cut</span>
-              <span><i class="sw fold"></i>Fold</span>
-              <span><i class="sw glue"></i>Glue</span>
-            </div>
-          </div>
-          <div class="dieline" id="shape-dieline"></div>
-        </div>
-      </section>
-    </main>
-
     <main class="layout tab-panel" id="tab-advanced" hidden>
       <aside class="sidebar">
         <section class="panel" id="adv-inspector"></section>

@@ -3,7 +3,7 @@ import { BASE_ID, overlaps, type AdvancedDesign, type CustomPanel } from '../adv
 import type { Vec2 } from '../types';
 
 /**
- * Shape Maker: a simple solid made by extruding a basic shape in one or more levels,
+ * Shape Builder: a simple solid made by extruding a basic shape in one or more levels,
  * each of which can narrow or widen. `toDesign` unfolds it into an Advanced design.
  */
 export type BaseShape = 'rect' | 'triangle' | 'pentagon' | 'hexagon' | 'octagon' | 'round';

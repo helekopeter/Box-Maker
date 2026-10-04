@@ -3,15 +3,21 @@ import { DecalLayer, sanitizeDecals } from './decals';
 import { buildSvg } from './export/svg';
 import { generateDieline, STYLE_INFO } from './geometry/styles';
 import { BoxPreview } from './preview3d';
+import { toDieline } from './advanced/model';
+import { ShapeControls } from './shape/controls';
+import { newShape, sanitizeShape, toDesign, type NetResult, type ShapeSpec } from './shape/model';
 import type { Appearance, BoxParams, BoxStyle, Decal, Dieline, ExportOptions, FoldMode } from './types';
 import { bedWarning, bindBedInputs, fitsBed, onBedChange } from './bed';
 import { $, buildSwatches, download, el, num, syncSwatches } from './ui';
 
 /**
- * The Simple tab: pick a ready-made box style, set its size, colour and decals.
+ * The Simple tab: pick a ready-made box style (or build a shape), set its size, colour
+ * and decals.
  */
 interface State {
   params: BoxParams;
+  /** The Shape Builder's shape (used when the style is 'shape'). */
+  shape: ShapeSpec;
   look: Appearance;
   exp: ExportOptions;
   units: 'mm' | 'in';
@@ -22,7 +28,29 @@ interface State {
 export interface SimpleShare {
   kind: 'simple';
   params: BoxParams;
+  /** Only for the Shape Builder style. */
+  shape?: ShapeSpec;
   look: Appearance;
+}
+
+/** Unfolds a Shape Builder shape, using the Simple tab's material and glue tab width. */
+export function shapeNet(shape: ShapeSpec, params: BoxParams, color: string): NetResult {
+  return toDesign({ ...shape, thickness: params.thickness, color, tab: Math.min(40, Math.max(4, params.glueTab)) });
+}
+
+/** The cutting layout for a Simple box (ready-made style or Shape Builder). */
+export function dielineFor(params: BoxParams, shape: ShapeSpec | undefined, color: string): Dieline {
+  if (params.style === 'shape') return toDieline(shapeNet(shape ?? newShape(), params, color).design);
+  return generateDieline(params);
+}
+
+/** A shape made in the old Shape Maker tab, so it isn't lost. */
+function legacyShape(): ShapeSpec {
+  try {
+    return sanitizeShape(JSON.parse(localStorage.getItem('box-maker:shape:v1') ?? 'null')) ?? newShape();
+  } catch {
+    return newShape();
+  }
 }
 
 const STORAGE_KEY = 'box-maker:v2';
@@ -39,6 +67,7 @@ const defaults = (): State => ({
     lidHeight: 30,
     lidClearance: 1,
   },
+  shape: legacyShape(),
   look: { color: KRAFT, decals: [] },
   exp: { foldMode: 'score', includeArtwork: false, includeGlue: true },
   units: 'mm',
@@ -55,6 +84,7 @@ function load(): State {
       ...d,
       ...s,
       params: { ...d.params, ...s.params },
+      shape: sanitizeShape(s.shape) ?? d.shape,
       look: { ...d.look, ...s.look },
       exp: { ...d.exp, ...s.exp },
     };
@@ -75,6 +105,8 @@ export const STYLE_ICONS: Record<BoxStyle, string> = {
   gable: '<path d="M16 26 34 20l12 6v28l-16 6-14-6z"/><path d="M16 26l14 6 16-6M30 32v28" class="l"/><path d="M16 26l9-12 21 6-16 6" class="l"/><path d="M25 14l-2-8 20 6 3 8" class="l"/><path d="M28 10l12 4" class="l"/>',
   tray: '<path d="M6 30 32 20l26 10v12L32 54 6 42z"/><path d="M6 30l26 10 26-10M32 40v14" class="l"/><path d="M14 30l18-7 18 7-18 7z" class="l"/>',
   traylid: '<path d="M8 38 32 30l24 8v8L32 56 8 46z"/><path d="M8 38l24 8 24-8M32 46v10" class="l"/><path d="M6 18 32 8l26 10v6L32 34 6 24z"/><path d="M6 18l26 10 26-10M32 28v6" class="l"/>',
+  // A hexagonal tower with a pointed roof: a shape built from extruded levels.
+  shape: '<path d="M14 30l10-5h16l10 5v20l-10 5H24l-10-5z"/><path d="M14 30l10 5h16l10-5M24 35v20M40 35v20" class="l"/><path d="M14 30 32 6l18 24" /><path d="M24 25 32 6l8 19M24 35 32 6l8 29" class="l"/>',
   sleeve: '<path d="M4 34 26 26l34 10v10L38 54 4 44z"/><path d="M4 34l34 10 22-8M38 44v10" class="l"/><path d="M16 22l22-8 12 4v14L28 40 16 36z"/><path d="M16 22l12 4 22-8M28 26v14" class="l"/>',
 };
 
@@ -91,9 +123,13 @@ export class SimpleTab {
   private saveTimer = 0;
   private artQueued = false;
   private svgTimer = 0;
+  private updateQueued = false;
+  /** The unfolded net when the style is Shape Builder. */
+  shapeResult: NetResult | null = null;
+  private shapeControls: ShapeControls;
 
   constructor() {
-    this.dieline = generateDieline(this.state.params);
+    this.dieline = dielineFor(this.state.params, this.state.shape, this.state.look.color);
     this.preview = new BoxPreview($('#viewer'));
     this.decals = new DecalLayer({
       list: $('#decals'),
@@ -106,6 +142,7 @@ export class SimpleTab {
       decals: () => this.state.look.decals,
       changed: (dragging) => this.refreshArt(dragging),
     });
+    this.shapeControls = new ShapeControls(() => this.state.shape, () => this.scheduleUpdate());
     this.buildStyleCards();
     this.bindControls();
     this.syncInputs();
@@ -130,10 +167,22 @@ export class SimpleTab {
     }, 300);
   }
 
+  /** Coalesces rapid edits (e.g. dragging a slider) into one update per frame. */
+  private scheduleUpdate() {
+    if (this.updateQueued) return;
+    this.updateQueued = true;
+    requestAnimationFrame(() => {
+      this.updateQueued = false;
+      this.update();
+    });
+  }
+
   update() {
     const p = this.state.params;
-    this.dieline = generateDieline(p);
-    const key = JSON.stringify(p);
+    const shaped = p.style === 'shape';
+    this.shapeResult = shaped ? shapeNet(this.state.shape, p, this.state.look.color) : null;
+    this.dieline = this.shapeResult ? toDieline(this.shapeResult.design) : generateDieline(p);
+    const key = JSON.stringify(p) + (shaped ? JSON.stringify(this.state.shape) : '');
     if (key !== this.geomKey) {
       this.preview.setDieline(this.dieline, p.thickness, p.style !== this.lastStyle);
       this.geomKey = key;
@@ -148,6 +197,15 @@ export class SimpleTab {
     $('#lid-height-row').hidden = p.style !== 'traylid';
     $('#lift-wrap').hidden = !twoPiece;
     $('#lift-label').textContent = p.style === 'sleeve' ? 'Slide' : 'Lid';
+    // Shape Builder replaces the box size inputs with its own shape controls.
+    $('#shape-builder').hidden = !shaped;
+    for (const id of ['#units', '#size-hint', '#size-dims']) $(id).hidden = shaped;
+    $('#size-title').textContent = shaped ? 'Material' : 'Size';
+    let step = 0;
+    document.querySelectorAll<HTMLElement>('#tab-simple .sidebar > .panel').forEach((panel) => {
+      const n = panel.querySelector('.step');
+      if (n && !panel.hidden) n.textContent = String(++step);
+    });
     this.applyLift();
     this.save();
   }
@@ -197,6 +255,19 @@ export class SimpleTab {
       `<div><span>Outside</span><b>${this.fmt(L)} × ${this.fmt(W)} × ${this.fmt(H)}</b></div>` +
       `<div><span>Sheet</span><b>${this.fmt(sw)} × ${this.fmt(sh)}</b></div>` +
       (fits ? '' : `<div class="warn">${bedWarning()}</div>`);
+    const r = this.shapeResult;
+    if (r) {
+      $('#stats').append(el('p', {
+        className: 'hint',
+        textContent: `Unfolded with ${r.layout === 'star' ? 'the walls around the base' : 'the walls in a strip (they would overlap around the base)'}; glue tabs on every seam.`,
+      }));
+      if (r.overlaps) {
+        $('#stats').append(el('div', {
+          className: 'warn',
+          textContent: '⚠ Some panels overlap on the sheet, so this can’t be cut from one piece yet. Try a smaller change in size between levels, or fix it up in Advanced.',
+        }));
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -207,7 +278,7 @@ export class SimpleTab {
     const wrap = $('#styles');
     wrap.innerHTML = '';
     for (const style of Object.keys(STYLE_INFO) as BoxStyle[]) {
-      const b = el('button', { className: 'style-card', title: STYLE_INFO[style].description });
+      const b = el('button', { className: `style-card${style === 'shape' ? ' big' : ''}`, title: STYLE_INFO[style].description });
       b.dataset.style = style;
       b.innerHTML = `<svg viewBox="0 0 64 64" aria-hidden="true">${STYLE_ICONS[style]}</svg><span>${STYLE_INFO[style].name}</span>`;
       b.onclick = () => {
@@ -232,6 +303,7 @@ export class SimpleTab {
     const p = state.params;
     document.querySelectorAll<HTMLButtonElement>('.style-card').forEach((b) => b.classList.toggle('on', b.dataset.style === p.style));
     $('#style-desc').textContent = STYLE_INFO[p.style].description;
+    this.shapeControls?.sync();
     for (const id of SimpleTab.dimIds) {
       const inp = $<HTMLInputElement>(`#${id}`);
       inp.value = state.units === 'in' ? (+(p[id] / IN).toFixed(3)).toString() : (+p[id].toFixed(1)).toString();
@@ -369,6 +441,10 @@ export class SimpleTab {
   private baseName() {
     const p = this.state.params;
     const r = (v: number) => Math.round(v);
+    if (p.style === 'shape') {
+      const [L, W, H] = this.dieline.outer.map(r);
+      return `box-${this.state.shape.shape}-${L}x${W}x${H}mm`;
+    }
     return `box-${p.style}-${r(p.length)}x${r(p.width)}x${r(p.height)}mm`;
   }
 
@@ -385,12 +461,14 @@ export class SimpleTab {
   }
 
   share(): SimpleShare {
-    return JSON.parse(JSON.stringify({ kind: 'simple', params: this.state.params, look: this.state.look }));
+    const shape = this.state.params.style === 'shape' ? this.state.shape : undefined;
+    return JSON.parse(JSON.stringify({ kind: 'simple', params: this.state.params, ...(shape ? { shape } : {}), look: this.state.look }));
   }
 
   /** Loads a box shared from the Box Universe (already sanitised). */
   open(s: SimpleShare) {
     this.state.params = { ...defaults().params, ...s.params };
+    if (s.shape) this.state.shape = s.shape;
     this.state.look = { color: s.look.color, decals: s.look.decals };
     const preset = ['0.3', '1', '1.5', '2', '3', '4'].find((m) => parseFloat(m) === this.state.params.thickness);
     this.state.material = preset ?? 'custom';
@@ -430,6 +508,7 @@ export function sanitizeSimple(raw: unknown): SimpleShare | null {
       lidHeight: n(p.lidHeight, 5, 3000, d.lidHeight),
       lidClearance: n(p.lidClearance, 0, 20, d.lidClearance),
     },
+    ...(r.shape ? { shape: sanitizeShape(r.shape) ?? newShape() } : {}),
     look: {
       color: typeof look.color === 'string' && /^#[0-9a-f]{6}$/i.test(look.color) ? look.color : KRAFT,
       decals: sanitizeDecals(look.decals),

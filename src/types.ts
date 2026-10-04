@@ -11,7 +11,8 @@ export type BoxStyle =
   | 'gable'
   | 'tray'
   | 'traylid'
-  | 'sleeve';
+  | 'sleeve'
+  | 'shape';
 
 export interface BoxParams {
   style: BoxStyle;

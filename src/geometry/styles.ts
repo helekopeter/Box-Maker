@@ -45,6 +45,10 @@ export const STYLE_INFO: Record<BoxStyle, { name: string; description: string }>
     name: 'Tray + sleeve',
     description: 'Two pieces: an open tray that slides into an outer sleeve, open at both ends.',
   },
+  shape: {
+    name: 'Shape Builder',
+    description: 'Build your own shape: pick a base, extrude it in levels that narrow, widen or come to a point, and get the box for it.',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -348,5 +352,7 @@ export function generateDieline(p: BoxParams): Dieline {
     case 'tray': return tray(p);
     case 'traylid': return traylid(p);
     case 'sleeve': return sleeve(p);
+    // Built from a ShapeSpec rather than these parameters; see shapeDieline() in simple.ts.
+    case 'shape': throw new Error('Shape Builder boxes are built from a shape, not box parameters');
   }
 }

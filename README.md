@@ -1,6 +1,6 @@
 # Box Maker
 
-A small web app that generates laser-cutting files for cardboard boxes, with a live 3D preview. It has four tabs.
+A small web app that generates laser-cutting files for cardboard boxes, with a live 3D preview. It has three tabs.
 
 ## Simple
 
@@ -15,26 +15,27 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
    - Open tray
    - Tray + lid
    - Tray + sleeve
+   - **Shape Builder** (the big card at the end): design your own shape instead (see below)
 2. **Enter the inside dimensions** (mm or inches) and pick the material: paper, thin card, cardboard, grey board, corrugated or double wall, or a custom thickness. Panels are enlarged automatically to make room for the material.
 3. **Choose a colour and add decals** (text or uploaded images). Drag them around on the 3D box. A decal that hangs over an edge wraps onto the next side like a sticker. If the two sides aren't next to each other on the flat sheet (across the glue seam, a lid edge, or the two top flaps), it is split automatically in the cut file.
 4. **Download an SVG or PDF.** The page is sized 1:1 to the sheet in millimetres. Set your **laser bed** size under Export (it's shared by every tab), and each tab warns when the cutting layout won't fit.
 
 **Edit in Advanced** turns the current box into an Advanced design, keeping every panel, fold, colour and decal, so you can keep changing it freehand. For two-piece boxes only the tray carries over.
 
-## Shape Maker
+### Shape Builder
 
-Build a simple 3D shape and get the box for it.
+The last box style builds a simple 3D shape and gives you the box for it.
 
 1. **Pick a base shape:** rectangle, triangle, pentagon, hexagon, octagon or round. Round shapes are made of flat sides; you choose how many.
 2. **Extrude it** in one or more levels. Each level has a height and a top size: below 100% narrows it, above 100% widens it, and 0% brings it to a point, like a roof.
-3. **Choose a closed lid or an open top**, plus material and colour.
+3. **Choose a closed lid or an open top**, then set the material and colour as usual.
 
 The 3D view shows the folded box live, with its cutting layout below. The solid is unfolded into a net with:
 - a fold angle on every fold
 - a glue tab on every seam
 - tabs under the lid
 
-It first tries the walls around the base; if they would overlap on the sheet, it lays them out in a strip instead. **Make box in Advanced** opens the result in the Advanced tab for further editing.
+It first tries the walls around the base; if they would overlap on the sheet, it lays them out in a strip instead. **Edit in Advanced** opens the net in the Advanced tab for further editing.
 
 ## Advanced
 
