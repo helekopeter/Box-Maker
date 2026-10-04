@@ -301,6 +301,8 @@ input[type='radio'], input[type='checkbox'] { accent-color: var(--accent); }
 .adv-svg .draft { stroke: #ff7a00; stroke-width: 2; fill: color-mix(in srgb, #ff7a00 12%, transparent); vector-effect: non-scaling-stroke; pointer-events: none; }
 .adv-svg .draft.cut { stroke: var(--cut); fill: color-mix(in srgb, var(--cut) 10%, transparent); }
 .adv-svg .draft-pt { fill: #fff; stroke: #ff7a00; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.adv-svg .draft-handle { stroke: #ff7a00; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+.adv-svg .draft-hpt { fill: #ff7a00; pointer-events: none; }
 .adv-svg .draft-pt.first { fill: var(--cut); stroke: #fff; }
 
 /* Box Universe ------------------------------------------------------------- */

@@ -1,5 +1,6 @@
 import { computeLines } from '../geometry/lines';
 import type { Dieline, Vec2 } from '../types';
+import { flattenPath, pathData, type PathPoint } from './curves';
 import {
   BASE_ID, deleteVertex, edgeOf, editablePoints, insertVertex, layout, makeChild, moveVertex,
   canCarry, clone, copySubtree, setEdgeLength, flipPanel, mirrorCopy, overlaps, rawPanels, subtree, toLocal, freeSpans,
@@ -24,12 +25,12 @@ interface PenState {
   edge: number;
   start: Vec2; // sheet point on the edge
   span: [number, number]; // the free stretch of the edge it started on
-  points: Vec2[];
+  points: PathPoint[];
 }
 
 interface CutState {
   panel: string;
-  points: Vec2[];
+  points: PathPoint[];
 }
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -50,12 +51,15 @@ export class Editor {
   onChange: (d: AdvancedDesign) => void = () => {};
   onSelect: () => void = () => {};
   onToolHint: (hint: string) => void = () => {};
+  onTool: (t: Tool) => void = () => {};
 
   private svg: SVGSVGElement;
   private view: View = { scale: 2, tx: 0, ty: 0 };
   private drag: Drag | null = null;
   private pen: PenState | null = null;
   private cut: CutState | null = null;
+  /** A pen or cut-out point being dragged out into a curve (its handle follows the pointer). */
+  private bend: PathPoint | null = null;
   /** The measure tool's line (kept on screen until the next measurement). */
   private measure: { a: Vec2; b: Vec2; done: boolean } | null = null;
   /** Placing a copy of a panel: click a free edge to drop it there. */
@@ -106,6 +110,7 @@ export class Editor {
     this.measure = null;
     this.hint();
     this.render();
+    this.onTool(t);
   }
 
   select(id: string | null) {
@@ -445,6 +450,13 @@ export class Editor {
       this.dragTo(d, p, e.shiftKey);
       return;
     }
+    if (this.bend && e.buttons & 1) {
+      const h: Vec2 = [p[0] - this.bend.p[0], p[1] - this.bend.p[1]];
+      if (Math.hypot(h[0], h[1]) * this.view.scale > 4) this.bend.h = h;
+      else delete this.bend.h;
+      this.render();
+      return;
+    }
     if (this.tool === 'pen' || this.placing) {
       this.hoverEdge = this.pen ? null : this.nearestEdge(p, true);
       this.render();
@@ -457,6 +469,7 @@ export class Editor {
   }
 
   private onUp(e: PointerEvent) {
+    this.bend = null;
     // Measuring works by dragging as well as by clicking both ends.
     const m = this.measure;
     if (this.tool === 'measure' && m && !m.done && Math.hypot(m.b[0] - m.a[0], m.b[1] - m.a[1]) * this.view.scale > 6) {
@@ -685,8 +698,7 @@ export class Editor {
         return;
       }
     }
-    this.pen.points.push(this.snapPt(p));
-    this.render();
+    this.addPathPoint(this.pen.points, p);
   }
 
   private finishPen(end: Vec2) {
@@ -697,7 +709,8 @@ export class Editor {
     const along = (q: Vec2) => ((q[0] - a[0]) * (b[0] - a[0]) + (q[1] - a[1]) * (b[1] - a[1])) / L;
     let u0 = along(pen.start);
     let u1 = along(end);
-    let pts = pen.points;
+    // Curves become short straight pieces (the end points sit on the hinge, so drop them).
+    let pts = flattenPath([{ p: pen.start }, ...pen.points, { p: end }]).slice(1, -1);
     if (u0 > u1) {
       [u0, u1] = [u1, u0];
       pts = [...pts].reverse();
@@ -728,23 +741,30 @@ export class Editor {
     this.keepInView(child.id);
   }
 
+  /** Adds a corner; dragging before letting go pulls it into a curve. */
+  private addPathPoint(list: PathPoint[], p: Vec2) {
+    const pt: PathPoint = { p: this.snapPt(p) };
+    list.push(pt);
+    this.bend = pt;
+    this.render();
+  }
+
   private cutClick(p: Vec2) {
     const s = this.snapPt(p);
     if (!this.cut) {
       const id = this.panelAt(p);
       if (!id) return;
-      this.cut = { panel: id, points: [s] };
+      this.cut = { panel: id, points: [] };
       this.hint();
-      this.render();
+      this.addPathPoint(this.cut.points, p);
       return;
     }
-    const first = this.cut.points[0];
+    const first = this.cut.points[0].p;
     if (this.cut.points.length >= 3 && Math.hypot(s[0] - first[0], s[1] - first[1]) * this.view.scale < 10) {
       this.finishCut();
       return;
     }
-    this.cut.points.push(s);
-    this.render();
+    this.addPathPoint(this.cut.points, p);
   }
 
   private finishCut() {
@@ -753,8 +773,9 @@ export class Editor {
     if (!cut || cut.points.length < 3) return this.render();
     const pl = this.placed.get(cut.panel)!;
     this.checkpoint();
-    if (cut.panel === BASE_ID) this.design.base.holes.push(cut.points);
-    else this.design.panels.find((x) => x.id === cut.panel)!.holes.push(cut.points.map((q) => toLocal(pl, q)));
+    const loop = flattenPath(cut.points, true);
+    if (cut.panel === BASE_ID) this.design.base.holes.push(loop);
+    else this.design.panels.find((x) => x.id === cut.panel)!.holes.push(loop.map((q) => toLocal(pl, q)));
     this.selected = cut.panel;
     this.changed();
     this.onSelect();
@@ -765,10 +786,10 @@ export class Editor {
     const hints: Record<Tool, string> = {
       select: '+ adds a wall or flap · double-click an angle or length to type it · double-click an edge: add corner · Ctrl+D: duplicate · Ctrl+Z: undo',
       pen: this.pen
-        ? 'Click to add points. Click the starting edge again to finish (Backspace undoes a point, Esc cancels).'
+        ? 'Click for a corner, drag for a curve. Click the starting edge again to finish (Backspace undoes a point, Esc cancels).'
         : 'Click a free edge of a wall (or the base) to start drawing a flap from it.',
       cut: this.cut
-        ? 'Click to add points. Click the first point or press Enter to finish the cut-out.'
+        ? 'Click for a corner, drag for a curve. Click the first point or press Enter to finish the cut-out.'
         : 'Click inside a panel to start a cut-out.',
       measure: 'Click two points (or drag) to measure. Snaps to corners and edges.',
     };
@@ -922,8 +943,10 @@ export class Editor {
     const pl = this.placed.get(id);
     if (!pl) return [];
     const out: string[] = [];
+    // Curves are many short pieces; smaller corner handles keep them readable.
+    const many = (editablePoints(this.design, id)?.length ?? 0) > 16;
     const dot = (p: Vec2, kind: string, extra = '', cls = '') =>
-      out.push(`<circle class="handle ${cls}" data-handle="${kind}" ${extra} cx="${n(p[0])}" cy="${n(p[1])}" r="${n(px(6))}"/>`);
+      out.push(`<circle class="handle ${cls}" data-handle="${kind}" ${extra} cx="${n(p[0])}" cy="${n(p[1])}" r="${n(px(kind === 'vertex' && many ? 3.5 : 6))}"/>`);
     const custom = id === BASE_ID ? !!this.design.base.points : pl.panel!.shape.type === 'custom';
     if (custom) {
       const pts = editablePoints(this.design, id)!;
@@ -959,6 +982,21 @@ export class Editor {
     return `<path class="edge-hover" d="M${n(p[0])} ${n(p[1])}L${n(q[0])} ${n(q[1])}"/>`;
   }
 
+  /** Dots for drawn points, and the handles of curved ones. */
+  private pathHandles(pts: PathPoint[], px: (v: number) => number, firstBig = false): string[] {
+    const out: string[] = [];
+    pts.forEach(({ p, h }, i) => {
+      if (h) {
+        const [a, b] = [[p[0] - h[0], p[1] - h[1]], [p[0] + h[0], p[1] + h[1]]];
+        out.push(`<path class="draft-handle" d="M${n(a[0])} ${n(a[1])}L${n(b[0])} ${n(b[1])}"/>`);
+        for (const q of [a, b]) out.push(`<circle class="draft-hpt" cx="${n(q[0])}" cy="${n(q[1])}" r="${n(px(2.5))}"/>`);
+      }
+      const big = firstBig && i === 0;
+      out.push(`<circle class="draft-pt ${big ? 'first' : ''}" cx="${n(p[0])}" cy="${n(p[1])}" r="${n(px(big ? 5 : 3.5))}"/>`);
+    });
+    return out;
+  }
+
   private toolOverlay(px: (v: number) => number): string[] {
     const out: string[] = [];
     const c = this.cursor;
@@ -968,9 +1006,9 @@ export class Editor {
       }
       if (this.pen) {
         out.push(this.spanPath(this.pen.parent, this.pen.edge, this.pen.span));
-        const pts = [this.pen.start, ...this.pen.points, ...(c ? [this.snapPt(c)] : [])];
-        out.push(`<path class="draft" d="${pts.map((q, i) => `${i ? 'L' : 'M'}${n(q[0])} ${n(q[1])}`).join('')}"/>`);
-        for (const q of [this.pen.start, ...this.pen.points]) out.push(`<circle class="draft-pt" cx="${n(q[0])}" cy="${n(q[1])}" r="${n(px(3.5))}"/>`);
+        const pts: PathPoint[] = [{ p: this.pen.start }, ...this.pen.points, ...(c && !this.bend ? [{ p: this.snapPt(c) }] : [])];
+        out.push(`<path class="draft" d="${pathData(pts, n)}"/>`);
+        out.push(...this.pathHandles([{ p: this.pen.start }, ...this.pen.points], px));
       }
     }
     if (this.placing) {
@@ -993,11 +1031,9 @@ export class Editor {
     }
     if (this.tool === 'measure') out.push(...this.measureOverlay(px));
     if (this.tool === 'cut' && this.cut) {
-      const pts = [...this.cut.points, ...(c ? [this.snapPt(c)] : [])];
-      out.push(`<path class="draft cut" d="${pts.map((q, i) => `${i ? 'L' : 'M'}${n(q[0])} ${n(q[1])}`).join('')}"/>`);
-      this.cut.points.forEach((q, i) =>
-        out.push(`<circle class="draft-pt ${i === 0 ? 'first' : ''}" cx="${n(q[0])}" cy="${n(q[1])}" r="${n(px(i === 0 ? 5 : 3.5))}"/>`),
-      );
+      const pts: PathPoint[] = [...this.cut.points, ...(c && !this.bend ? [{ p: this.snapPt(c) }] : [])];
+      out.push(`<path class="draft cut" d="${pathData(pts, n)}"/>`);
+      out.push(...this.pathHandles(this.cut.points, px, true));
     }
     return out;
   }

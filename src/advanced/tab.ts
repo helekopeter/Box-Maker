@@ -78,6 +78,8 @@ export class AdvancedTab {
     this.editor.onChange = () => this.queue(true);
     this.editor.onSelect = () => this.renderInspector();
     this.editor.onToolHint = (h) => ($('#adv-tool-hint').textContent = h);
+    this.editor.onTool = (t) =>
+      document.querySelectorAll<HTMLButtonElement>('#adv-tools button[data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
     this.bind();
     this.editor.setTool('select');
     this.rebuild();
@@ -228,7 +230,6 @@ export class AdvancedTab {
 
   setTool(t: Tool) {
     this.editor.setTool(t);
-    document.querySelectorAll<HTMLButtonElement>('#adv-tools button[data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
   }
 
   private setThickness(t: number) {
