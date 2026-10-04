@@ -321,7 +321,7 @@ function sleeve(p: BoxParams): Dieline {
 }
 
 /** Normalises the layout so it starts at (MARGIN, MARGIN) and records the sheet size. */
-function finish(d: Dieline): Dieline {
+export function finish(d: Dieline): Dieline {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const p of d.panels)
     for (const [x, y] of p.poly) {

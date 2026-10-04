@@ -94,12 +94,18 @@ export class BoxPreview {
     this.controls.autoRotateSpeed = 1.5;
   }
 
+  private hidden = true;
+
   private resize() {
+    const visible = this.container.clientWidth > 0 && this.container.clientHeight > 0;
     const w = this.container.clientWidth || 1;
     const h = this.container.clientHeight || 1;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    // A viewer created inside a hidden tab gets its real size later: aim the camera then.
+    if (visible && this.hidden) this.frame();
+    this.hidden = !visible;
     this.needsRender = true;
   }
 
@@ -212,7 +218,8 @@ export class BoxPreview {
     // Frame the assembled box, with enough room to mostly see the flat sheet too.
     const radius = Math.max(fs.length() * 0.62, Math.max(ff.x, ff.z) * 0.38);
     const target = folded.getCenter(new THREE.Vector3());
-    const dist = radius / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * 1.05;
+    // Fit the tighter of the two directions (narrow viewers are limited by their width).
+    const dist = (radius / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.05 / Math.min(1, this.camera.aspect);
     const dir = new THREE.Vector3(0.75, 0.6, 1).normalize();
     this.camera.position.copy(target).addScaledVector(dir, dist);
     this.camera.near = dist / 100;

@@ -13,19 +13,26 @@
         <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 29 9v14l-13 6-13-6V9z" /><path d="M3 9l13 6 13-6M16 15v14" class="fold" /></svg>
         <span>Box Maker</span>
       </div>
+      <nav class="tabs" role="tablist" aria-label="Mode">
+        <button role="tab" data-tab="simple" class="on">Simple</button>
+        <button role="tab" data-tab="advanced">Advanced</button>
+        <button role="tab" data-tab="universe">Box Universe</button>
+      </nav>
       <div class="topbar-actions">
-        <button class="btn ghost" id="reset-btn" title="Reset all settings">Reset</button>
-        <button class="btn" id="dl-svg">Download SVG</button>
-        <button class="btn primary" id="dl-pdf">Download PDF</button>
+        <button class="btn ghost" id="reset-btn" title="Start over">Reset</button>
+        <button class="btn" id="share-btn" title="Share this box to the Box Universe">Share</button>
+        <button class="btn" id="dl-svg">SVG</button>
+        <button class="btn primary" id="dl-pdf">PDF</button>
       </div>
     </header>
 
-    <main class="layout">
+    <main class="layout tab-panel" id="tab-simple">
       <aside class="sidebar">
         <section class="panel">
           <h2><span class="step">1</span> Box style</h2>
           <div class="styles" id="styles"></div>
           <p class="hint" id="style-desc"></p>
+          <button class="btn small to-adv" id="to-advanced" title="Keep editing this box freehand in the Advanced tab">Edit in Advanced ✎</button>
         </section>
 
         <section class="panel">
@@ -124,6 +131,129 @@
         </div>
       </section>
     </main>
+    <main class="layout tab-panel" id="tab-advanced" hidden>
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>Tools</h2>
+          <div class="seg wide tools" id="adv-tools">
+            <button data-tool="select" class="on" title="Select and resize (V)">Select</button>
+            <button data-tool="pen" title="Draw a flap from an edge (P)">Pen</button>
+            <button data-tool="cut" title="Draw a cut-out (C)">Cut-out</button>
+          </div>
+          <p class="hint" id="adv-tool-hint"></p>
+          <div class="btn-row">
+            <button class="btn small" id="adv-undo" title="Undo (Ctrl+Z)">↶ Undo</button>
+            <button class="btn small" id="adv-redo" title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+            <button class="btn small" id="adv-zoom-out" title="Zoom out">−</button>
+            <button class="btn small" id="adv-zoom-in" title="Zoom in">+</button>
+            <button class="btn small" id="adv-fit" title="Fit to view">Fit</button>
+            <label class="snap">Snap
+              <select id="adv-snap"><option value="0">Off</option><option value="1" selected>1 mm</option><option value="5">5 mm</option><option value="10">10 mm</option></select>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel" id="adv-inspector"></section>
+
+        <section class="panel">
+          <h2>Material &amp; look</h2>
+          <label class="row">Material
+            <select id="adv-material">
+              <option value="1">Thin card · 1 mm</option>
+              <option value="1.5">Cardboard · 1.5 mm</option>
+              <option value="2">Grey board · 2 mm</option>
+              <option value="3">Corrugated · 3 mm</option>
+              <option value="4">Double wall · 4 mm</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </label>
+          <label class="row" id="adv-thickness-row" hidden>Thickness (mm)<input type="number" id="adv-thickness" min="0.2" max="10" step="0.1" /></label>
+          <div class="swatches" id="adv-swatches"></div>
+          <label class="row">Custom colour<input type="color" id="adv-color" /></label>
+          <div class="stats" id="adv-stats"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Decals</h2>
+          <div class="decal-actions">
+            <button class="btn small" id="adv-add-text">+ Text</button>
+            <label class="btn small file">+ Image<input type="file" id="adv-add-image" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" /></label>
+          </div>
+          <p class="hint" id="adv-decal-help" hidden>Drag a decal on the 3D box to move it. Decals go on walls (rectangular panels).</p>
+          <div id="adv-decals"></div>
+          <p class="hint" id="adv-decal-empty">Add a logo or label. Decals go on rectangular walls; drag them around on the 3D box.</p>
+        </section>
+
+        <section class="panel">
+          <h2>Export</h2>
+          <fieldset class="radio">
+            <legend>Fold lines</legend>
+            <label><input type="radio" name="advFoldMode" value="score" /> Score <span class="hint">blue line, low laser power</span></label>
+            <label><input type="radio" name="advFoldMode" value="perforate" /> Perforate <span class="hint">dashed red cut</span></label>
+          </fieldset>
+          <label class="check"><input type="checkbox" id="adv-includeGlue" /> Mark glue areas</label>
+          <label class="check"><input type="checkbox" id="adv-includeArtwork" /> Include colour &amp; decals</label>
+          <div class="export-btns">
+            <button class="btn" id="adv-dl-svg">SVG</button>
+            <button class="btn primary" id="adv-dl-pdf">PDF</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="stage adv-stage">
+        <div class="editor-card">
+          <div class="dieline-head">
+            <h3>Design</h3>
+            <div class="legend">
+              <span><i class="sw cut"></i>Cut</span>
+              <span><i class="sw fold"></i>Fold</span>
+              <span class="kbd-hint">Scroll to zoom · drag empty space to pan</span>
+            </div>
+          </div>
+          <div class="adv-editor" id="adv-editor"></div>
+        </div>
+        <div class="viewer" id="adv-viewer">
+          <div class="viewer-controls">
+            <button class="btn round" id="adv-play" title="Fold / unfold">▶</button>
+            <label class="slider">Fold<input type="range" id="adv-fold" min="0" max="1" step="0.001" /></label>
+            <label class="check small"><input type="checkbox" id="adv-spin" /> Spin</label>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <main class="universe tab-panel" id="tab-universe" hidden>
+      <div class="uni-head">
+        <div>
+          <h2>Box Universe</h2>
+          <p class="hint" id="uni-mode"></p>
+        </div>
+        <div class="uni-tools">
+          <input type="search" id="uni-search" placeholder="Search boxes…" aria-label="Search boxes" />
+          <label class="btn file">Import file<input type="file" id="uni-import" accept=".json,application/json" /></label>
+        </div>
+      </div>
+      <p class="hint" id="uni-status"></p>
+      <div class="uni-grid" id="uni-grid"></div>
+    </main>
+
+    <dialog id="share-dialog">
+      <form id="share-form" method="dialog">
+        <h2>Share to the Box Universe</h2>
+        <img id="share-thumb" alt="" />
+        <label>Name<input id="share-name" maxlength="80" required /></label>
+        <label>Your name<input id="share-author" maxlength="40" placeholder="Anonymous" /></label>
+        <label>Description<textarea id="share-desc" maxlength="500" rows="3" placeholder="What is it for? Any tips for folding it?"></textarea></label>
+        <p class="hint" id="share-where"></p>
+        <p class="error" id="share-error"></p>
+        <div class="btn-row end">
+          <button type="button" class="btn ghost" id="share-cancel">Cancel</button>
+          <button type="button" class="btn" id="share-file">Save as file</button>
+          <button type="submit" class="btn primary" id="share-submit">Share</button>
+        </div>
+      </form>
+    </dialog>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

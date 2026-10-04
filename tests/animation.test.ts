@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { foldMatrices } from '../src/geometry/fold';
 import { generateDieline } from '../src/geometry/styles';
 import type { BoxParams, BoxStyle, Dieline, Vec2 } from '../src/types';
+import { overlaps, toDieline } from '../src/advanced/model';
+import { EXAMPLES } from '../src/universe/examples';
 
 const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve'];
 
@@ -92,3 +94,16 @@ describe.each(styles)('%s fold animation', (style) => {
   });
 });
 
+
+describe('Box Universe examples', () => {
+  it.each(EXAMPLES.filter((e) => e.data.kind === 'advanced').map((e) => [e.name, e] as const))(
+    '%s cuts from one piece and folds cleanly',
+    (_name, ex) => {
+      if (ex.data.kind !== 'advanced') return;
+      const design = ex.data.design;
+      expect(overlaps(design)).toEqual([]);
+      const crossings = findCrossings(toDieline(design), design.thickness);
+      expect(crossings.map((c) => `${c.moving} through ${c.through}`)).toEqual([]);
+    },
+  );
+});
