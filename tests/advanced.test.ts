@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BASE_ID, clone, deleteVertex, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
+  BASE_ID, clone, deleteVertex, freeSpans, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
   removePanel, sanitizeDesign, toDieline, type AdvancedDesign,
 } from '../src/advanced/model';
 import { foldedBounds } from '../src/geometry/fold';
 import { chainSegments, computeLines } from '../src/geometry/lines';
+
+import chair from './fixtures/chair.json';
 
 /** A base with a wall on every side: an open tray. */
 function tray(): AdvancedDesign {
@@ -193,5 +195,32 @@ describe('walls vs flaps', () => {
     const { fromDieline } = await import('../src/advanced/convert');
     const { design } = fromDieline(generateDieline({ style: 'autolock', length: 100, width: 80, height: 60, thickness: 2, glueTab: 15, lidHeight: 30, lidClearance: 1 }), { name: 'a', thickness: 2, color: '#c9a46b' });
     for (const p of design.panels) if (design.panels.some((c) => c.parent === p.id)) expect(p.kind).toBe('wall');
+  });
+
+  it('fits several panels side by side on one edge (a chair with two legs on one side)', () => {
+    // An uploaded chair: a seat rim with one leg drawn on the first 10 mm of its outer edge.
+    const d = sanitizeDesign(chair)!;
+    const rim = 'w1tvgfk';
+    expect(freeSpans(d, rim, 2)).toEqual([[10, 100]]);
+    expect(freeSpans(d, rim, 0)).toEqual([]); // its own hinge
+
+    // A second leg at the far end, then a third panel in the gap between them.
+    const leg = makeChild(d, rim, 2, [90, 100])!;
+    expect([leg.inset0, leg.inset1]).toEqual([90, 0]);
+    d.panels.push(leg);
+    expect(freeSpans(d, rim, 2)).toEqual([[10, 90]]);
+    const mid = makeChild(d, rim, 2, [10, 90])!;
+    d.panels.push(mid);
+    expect(freeSpans(d, rim, 2)).toEqual([]);
+
+    const placed = layout(d);
+    expect(placed.has(leg.id) && placed.has(mid.id)).toBe(true);
+    // Every hinge becomes a fold (nothing is cut along the shared edge) and the outline is
+    // still one closed cut.
+    const length = (segs: { a: number[]; b: number[] }[]) => segs.reduce((t, g) => t + Math.hypot(g.b[0] - g.a[0], g.b[1] - g.a[1]), 0);
+    const hinges = [...placed.values()].reduce((t, pl) => t + pl.hinge, 0);
+    const { cuts, folds } = computeLines(toDieline(d));
+    expect(length(folds)).toBeCloseTo(hinges, 3);
+    expect(chainSegments(cuts).length).toBe(1);
   });
 });

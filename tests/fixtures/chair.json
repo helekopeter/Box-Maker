@@ -1,0 +1,111 @@
+{
+ "version": 1,
+ "name": "My box",
+ "thickness": 1.5,
+ "color": "#c9a46b",
+ "base": {
+  "width": 100,
+  "height": 100,
+  "holes": []
+ },
+ "panels": [
+  {
+   "id": "w1tvgfk",
+   "parent": "base",
+   "edge": 1,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 8,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 1,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "sibonfo",
+   "parent": "w1tvgfk",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 90,
+   "shape": {
+    "type": "custom",
+    "points": [
+     [
+      10,
+      92
+     ],
+     [
+      0,
+      92
+     ]
+    ]
+   },
+   "angle": 0,
+   "order": 2,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "ppce5mw",
+   "parent": "sibonfo",
+   "edge": 1,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 3,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "wwin6g2",
+   "parent": "ppce5mw",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 4,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "iufk89m",
+   "parent": "wwin6g2",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 5,
+   "layer": 0,
+   "holes": []
+  }
+ ],
+ "decals": []
+}

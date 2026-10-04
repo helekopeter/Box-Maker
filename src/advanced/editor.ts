@@ -2,7 +2,7 @@ import { computeLines } from '../geometry/lines';
 import type { Dieline, Vec2 } from '../types';
 import {
   BASE_ID, deleteVertex, edgeOf, editablePoints, insertVertex, layout, makeChild, moveVertex,
-  canCarry, overlaps, rawPanels, toLocal, usedEdges, type AdvancedDesign, type Placed,
+  canCarry, overlaps, rawPanels, toLocal, freeSpans, type AdvancedDesign, type Placed,
 } from './model';
 
 export type Tool = 'select' | 'pen' | 'cut';
@@ -22,6 +22,7 @@ interface PenState {
   parent: string;
   edge: number;
   start: Vec2; // sheet point on the edge
+  span: [number, number]; // the free stretch of the edge it started on
   points: Vec2[];
 }
 
@@ -54,7 +55,7 @@ export class Editor {
   private drag: Drag | null = null;
   private pen: PenState | null = null;
   private cut: CutState | null = null;
-  private hoverEdge: { panel: string; edge: number; at: Vec2 } | null = null;
+  private hoverEdge: { panel: string; edge: number; at: Vec2; span?: [number, number] } | null = null;
   private cursor: Vec2 | null = null;
   private undoStack: string[] = [];
   private redoStack: string[] = [];
@@ -264,35 +265,50 @@ export class Editor {
     return this.snap ? Math.round(v / this.snap) * this.snap : v;
   }
 
-  /** The panel edge nearest to a point (within a few screen pixels), with the point projected onto it. */
+  /**
+   * The panel edge nearest to a point (within a few screen pixels), with the point projected
+   * onto it. With `freeOnly`, only the free stretches of walls and the base count, and the
+   * stretch the point is on comes back as `span`.
+   */
   private nearestEdge(p: Vec2, freeOnly: boolean) {
     const tol = 8 / this.view.scale;
-    let best: { panel: string; edge: number; at: Vec2; d: number } | null = null;
+    let best: { panel: string; edge: number; at: Vec2; d: number; span?: [number, number] } | null = null;
     for (const pl of this.placed.values()) {
       // Free edges are where something new can go, so only on walls and the base.
       if (freeOnly && !canCarry(this.design, pl.id)) continue;
-      const used = freeOnly ? usedEdges(this.design, pl.id) : new Set<number>();
       for (let k = 0; k < pl.poly.length; k++) {
-        if (used.has(k)) continue;
         const [a, b] = edgeOf(pl.poly, k);
         const ab: Vec2 = [b[0] - a[0], b[1] - a[1]];
         const L2 = ab[0] ** 2 + ab[1] ** 2;
         if (L2 < 1e-6) continue;
-        const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / L2));
-        const at: Vec2 = [a[0] + ab[0] * t, a[1] + ab[1] * t];
+        const L = Math.sqrt(L2);
+        let lo = 0;
+        let hi = L;
+        let span: [number, number] | undefined;
+        if (freeOnly) {
+          // The free stretch nearest to the point along the edge.
+          const u = ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / L;
+          const gap = (s: [number, number]) => Math.max(0, s[0] - u, u - s[1]);
+          span = freeSpans(this.design, pl.id, k, this.placed).sort((x, y) => gap(x) - gap(y))[0];
+          if (!span) continue;
+          [lo, hi] = span;
+        }
+        const u = Math.max(lo, Math.min(hi, ((p[0] - a[0]) * ab[0] + (p[1] - a[1]) * ab[1]) / L));
+        const at: Vec2 = [a[0] + (ab[0] * u) / L, a[1] + (ab[1] * u) / L];
         const d = Math.hypot(p[0] - at[0], p[1] - at[1]);
-        if (d < tol && (!best || d < best.d)) best = { panel: pl.id, edge: k, at, d };
+        if (d < tol && (!best || d < best.d)) best = { panel: pl.id, edge: k, at, d, span };
       }
     }
     return best;
   }
 
-  /** Snaps a point on edge (panel, k) to the grid along the edge. */
-  private snapOnEdge(panel: string, k: number, at: Vec2): Vec2 {
+  /** Snaps a point on edge (panel, k) to the grid along the edge, keeping it within `span`. */
+  private snapOnEdge(panel: string, k: number, at: Vec2, span?: [number, number]): Vec2 {
     const pl = this.placed.get(panel)!;
     const [a, b] = edgeOf(pl.poly, k);
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const t = Math.max(0, Math.min(L, this.snapVal(Math.hypot(at[0] - a[0], at[1] - a[1]))));
+    const [lo, hi] = span ?? [0, L];
+    const t = Math.max(lo, Math.min(hi, this.snapVal(Math.hypot(at[0] - a[0], at[1] - a[1]))));
     return [a[0] + ((b[0] - a[0]) * t) / L, a[1] + ((b[1] - a[1]) * t) / L];
   }
 
@@ -321,8 +337,8 @@ export class Editor {
 
     const add = target.closest('[data-add]');
     if (add) {
-      const [panel, edge] = add.getAttribute('data-add')!.split(':');
-      this.addChild(panel, +edge);
+      const [panel, edge, u0, u1] = add.getAttribute('data-add')!.split(':');
+      this.addChild(panel, +edge, [+u0, +u1]);
       return;
     }
     const handle = target.closest('[data-handle]');
@@ -455,8 +471,8 @@ export class Editor {
   // Tools
   // -------------------------------------------------------------------------
 
-  private addChild(parent: string, edge: number) {
-    const child = makeChild(this.design, parent, edge);
+  private addChild(parent: string, edge: number, span: [number, number]) {
+    const child = makeChild(this.design, parent, edge, span);
     if (!child) return;
     this.checkpoint();
     this.design.panels.push(child);
@@ -484,16 +500,24 @@ export class Editor {
     if (!this.pen) {
       const hit = this.nearestEdge(p, true);
       if (!hit) return;
-      this.pen = { parent: hit.panel, edge: hit.edge, start: this.snapOnEdge(hit.panel, hit.edge, hit.at), points: [] };
+      this.pen = { parent: hit.panel, edge: hit.edge, span: hit.span!, start: this.snapOnEdge(hit.panel, hit.edge, hit.at, hit.span), points: [] };
       this.hint();
       this.render();
       return;
     }
-    // Clicking back on the starting edge finishes the flap.
-    const hit = this.nearestEdge(p, false);
-    if (hit && hit.panel === this.pen.parent && hit.edge === this.pen.edge && this.pen.points.length) {
-      this.finishPen(this.snapOnEdge(hit.panel, hit.edge, hit.at));
-      return;
+    // Clicking back on the starting edge finishes the flap. It can't run past the free
+    // stretch it started in, so it never lands on a panel already on that edge.
+    // (Checked against that edge alone, so a click on its corner, where other edges meet,
+    // still counts.)
+    if (this.pen.points.length) {
+      const [a, b] = edgeOf(this.placed.get(this.pen.parent)!.poly, this.pen.edge);
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const u = Math.max(this.pen.span[0], Math.min(this.pen.span[1], ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / L));
+      const at: Vec2 = [a[0] + ((b[0] - a[0]) * u) / L, a[1] + ((b[1] - a[1]) * u) / L];
+      if (Math.hypot(p[0] - at[0], p[1] - at[1]) * this.view.scale < 8) {
+        this.finishPen(this.snapOnEdge(this.pen.parent, this.pen.edge, at, this.pen.span));
+        return;
+      }
     }
     this.pen.points.push(this.snapPt(p));
     this.render();
@@ -520,9 +544,7 @@ export class Editor {
     }
     // Express the drawn points in the new panel's frame; the outline runs from the hinge's
     // end back round to its start, so reverse them.
-    const child = makeChild(this.design, pen.parent, pen.edge)!;
-    child.inset0 = u0;
-    child.inset1 = L - u1;
+    const child = makeChild(this.design, pen.parent, pen.edge, [u0, u1])!;
     const frame: Placed = {
       ...parent,
       origin: [a[0] + ((b[0] - a[0]) * u0) / L, a[1] + ((b[1] - a[1]) * u0) / L],
@@ -650,24 +672,25 @@ export class Editor {
     this.svg.style.cursor = this.tool === 'select' ? '' : 'crosshair';
   }
 
-  /** "+" buttons on every free edge. */
+  /** "+" buttons on every free stretch of edge. */
   private addButtons(px: (v: number) => number): string[] {
     const out: string[] = [];
     for (const pl of this.placed.values()) {
       if (!canCarry(this.design, pl.id)) continue;
-      const used = usedEdges(this.design, pl.id);
       for (let k = 0; k < pl.poly.length; k++) {
-        if (used.has(k)) continue;
         const [a, b] = edgeOf(pl.poly, k);
         const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        if (L * this.view.scale < 18) continue;
         const nrm = outward(pl, k);
-        const c: Vec2 = [(a[0] + b[0]) / 2 + nrm[0] * px(12), (a[1] + b[1]) / 2 + nrm[1] * px(12)];
-        const rr = px(8);
-        out.push(
-          `<g class="add" data-add="${pl.id}:${k}"><circle cx="${n(c[0])}" cy="${n(c[1])}" r="${n(rr)}"/>` +
-            `<path d="M${n(c[0] - rr * 0.5)} ${n(c[1])}H${n(c[0] + rr * 0.5)}M${n(c[0])} ${n(c[1] - rr * 0.5)}V${n(c[1] + rr * 0.5)}"/></g>`,
-        );
+        for (const [u0, u1] of freeSpans(this.design, pl.id, k, this.placed)) {
+          if ((u1 - u0) * this.view.scale < 18) continue;
+          const m = (u0 + u1) / 2 / L;
+          const c: Vec2 = [a[0] + (b[0] - a[0]) * m + nrm[0] * px(12), a[1] + (b[1] - a[1]) * m + nrm[1] * px(12)];
+          const rr = px(8);
+          out.push(
+            `<g class="add" data-add="${pl.id}:${k}:${u0}:${u1}"><circle cx="${n(c[0])}" cy="${n(c[1])}" r="${n(rr)}"/>` +
+              `<path d="M${n(c[0] - rr * 0.5)} ${n(c[1])}H${n(c[0] + rr * 0.5)}M${n(c[0])} ${n(c[1] - rr * 0.5)}V${n(c[1] + rr * 0.5)}"/></g>`,
+          );
+        }
       }
     }
     return out;
@@ -706,19 +729,25 @@ export class Editor {
     return out;
   }
 
+  /** Highlights the stretch `span` of edge k of a panel (the whole edge without one). */
+  private spanPath(panel: string, k: number, span?: [number, number]): string {
+    const [a, b] = edgeOf(this.placed.get(panel)!.poly, k);
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const [u0, u1] = span ?? [0, L];
+    const at = (u: number): Vec2 => [a[0] + ((b[0] - a[0]) * u) / L, a[1] + ((b[1] - a[1]) * u) / L];
+    const [p, q] = [at(u0), at(u1)];
+    return `<path class="edge-hover" d="M${n(p[0])} ${n(p[1])}L${n(q[0])} ${n(q[1])}"/>`;
+  }
+
   private toolOverlay(px: (v: number) => number): string[] {
     const out: string[] = [];
     const c = this.cursor;
     if (this.tool === 'pen') {
       if (this.hoverEdge && !this.pen) {
-        const pl = this.placed.get(this.hoverEdge.panel)!;
-        const [a, b] = edgeOf(pl.poly, this.hoverEdge.edge);
-        out.push(`<path class="edge-hover" d="M${n(a[0])} ${n(a[1])}L${n(b[0])} ${n(b[1])}"/>`);
+        out.push(this.spanPath(this.hoverEdge.panel, this.hoverEdge.edge, this.hoverEdge.span));
       }
       if (this.pen) {
-        const pl = this.placed.get(this.pen.parent)!;
-        const [a, b] = edgeOf(pl.poly, this.pen.edge);
-        out.push(`<path class="edge-hover" d="M${n(a[0])} ${n(a[1])}L${n(b[0])} ${n(b[1])}"/>`);
+        out.push(this.spanPath(this.pen.parent, this.pen.edge, this.pen.span));
         const pts = [this.pen.start, ...this.pen.points, ...(c ? [this.snapPt(c)] : [])];
         out.push(`<path class="draft" d="${pts.map((q, i) => `${i ? 'L' : 'M'}${n(q[0])} ${n(q[1])}`).join('')}"/>`);
         for (const q of [this.pen.start, ...this.pen.points]) out.push(`<circle class="draft-pt" cx="${n(q[0])}" cy="${n(q[1])}" r="${n(px(3.5))}"/>`);

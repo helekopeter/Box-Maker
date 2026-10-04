@@ -355,19 +355,38 @@ export function canCarry(d: AdvancedDesign, id: string): boolean {
   return d.panels.find((p) => p.id === id)?.kind === 'wall';
 }
 
-/** Edges of a panel that already have something attached (the hinge counts too). */
-export function usedEdges(d: AdvancedDesign, id: string): Set<number> {
-  const used = new Set<number>(d.panels.filter((p) => p.parent === id).map((p) => p.edge));
-  if (id !== BASE_ID) used.add(0);
-  return used;
+/**
+ * The free stretches of edge `edge` of panel `id`, as [start, end] distances along the
+ * edge: the parts no attached panel's hinge covers. A wall's own hinge (edge 0) is never
+ * free. Several panels can share an edge, side by side.
+ */
+export function freeSpans(d: AdvancedDesign, id: string, edge: number, placed = layout(d)): [number, number][] {
+  const pl = placed.get(id);
+  if (!pl || (id !== BASE_ID && edge === 0) || edge < 0 || edge >= pl.poly.length) return [];
+  const [a, b] = edgeOf(pl.poly, edge);
+  const L = len(sub(b, a));
+  const taken = d.panels
+    .filter((p) => p.parent === id && p.edge === edge)
+    .map((p) => [p.inset0, L - p.inset1] as [number, number])
+    .sort((x, y) => x[0] - y[0]);
+  const out: [number, number][] = [];
+  let at = 0;
+  for (const [u0, u1] of taken) {
+    if (u0 - at >= 1) out.push([at, u0]);
+    at = Math.max(at, u1);
+  }
+  if (L - at >= 1) out.push([at, L]);
+  return out;
 }
 
-/** A sensible new panel on edge `edge` of `parentId`. */
-export function makeChild(d: AdvancedDesign, parentId: string, edge: number): CustomPanel | null {
+/** A sensible new panel on edge `edge` of `parentId` (or on the stretch `span` of it). */
+export function makeChild(d: AdvancedDesign, parentId: string, edge: number, span?: [number, number]): CustomPanel | null {
   const parent = layout(d).get(parentId);
   if (!parent || !canCarry(d, parentId)) return null;
   const [a, b] = edgeOf(parent.poly, edge);
-  const edgeLen = len(sub(b, a));
+  const fullLen = len(sub(b, a));
+  const [u0, u1] = span ?? [0, fullLen];
+  const edgeLen = u1 - u0;
   const onBase = parentId === BASE_ID;
   // Walls off the base; smaller tapered flaps off everything else.
   const depth = onBase ? Math.round(Math.min(edgeLen, 100) * 0.8) : Math.round(Math.min(20, edgeLen * 0.4));
@@ -377,8 +396,8 @@ export function makeChild(d: AdvancedDesign, parentId: string, edge: number): Cu
     parent: parentId,
     edge,
     kind: onBase ? 'wall' : 'flap',
-    inset0: 0,
-    inset1: 0,
+    inset0: u0,
+    inset1: fullLen - u1,
     shape: { type: 'rect', depth, taper0: taper, taper1: taper },
     angle: 90,
     order: parent.depth + 1,
