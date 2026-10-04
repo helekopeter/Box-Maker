@@ -403,7 +403,7 @@ export class SimpleTab {
   open(s: SimpleShare) {
     this.state.params = { ...defaults().params, ...s.params };
     this.state.look = { color: s.look.color, decals: s.look.decals };
-    const preset = ['1', '1.5', '2', '3', '4'].find((m) => parseFloat(m) === this.state.params.thickness);
+    const preset = ['0.3', '1', '1.5', '2', '3', '4'].find((m) => parseFloat(m) === this.state.params.thickness);
     this.state.material = preset ?? 'custom';
     this.syncInputs();
     this.preview.stopAnimation();

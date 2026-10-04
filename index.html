@@ -50,6 +50,7 @@
           </div>
           <label class="row">Material
             <select id="material">
+              <option value="0.3">Paper · 0.3 mm</option>
               <option value="1">Thin card · 1 mm</option>
               <option value="1.5">Cardboard · 1.5 mm</option>
               <option value="2">Grey board · 2 mm</option>
@@ -133,32 +134,13 @@
     </main>
     <main class="layout tab-panel" id="tab-advanced" hidden>
       <aside class="sidebar">
-        <section class="panel">
-          <h2>Tools</h2>
-          <div class="seg wide tools" id="adv-tools">
-            <button data-tool="select" class="on" title="Select and resize (V)">Select</button>
-            <button data-tool="pen" title="Draw a flap from an edge (P)">Pen</button>
-            <button data-tool="cut" title="Draw a cut-out (C)">Cut-out</button>
-          </div>
-          <p class="hint" id="adv-tool-hint"></p>
-          <div class="btn-row">
-            <button class="btn small" id="adv-undo" title="Undo (Ctrl+Z)">↶ Undo</button>
-            <button class="btn small" id="adv-redo" title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
-            <button class="btn small" id="adv-zoom-out" title="Zoom out">−</button>
-            <button class="btn small" id="adv-zoom-in" title="Zoom in">+</button>
-            <button class="btn small" id="adv-fit" title="Fit to view">Fit</button>
-            <label class="snap">Snap
-              <select id="adv-snap"><option value="0">Off</option><option value="1" selected>1 mm</option><option value="5">5 mm</option><option value="10">10 mm</option></select>
-            </label>
-          </div>
-        </section>
-
         <section class="panel" id="adv-inspector"></section>
 
         <section class="panel">
           <h2>Material &amp; look</h2>
           <label class="row">Material
             <select id="adv-material">
+              <option value="0.3">Paper · 0.3 mm</option>
               <option value="1">Thin card · 1 mm</option>
               <option value="1.5">Cardboard · 1.5 mm</option>
               <option value="2">Grey board · 2 mm</option>
@@ -202,15 +184,24 @@
 
       <section class="stage adv-stage">
         <div class="editor-card">
-          <div class="dieline-head">
-            <h3>Design</h3>
-            <div class="legend">
-              <span><i class="sw cut"></i>Cut</span>
-              <span><i class="sw fold"></i>Fold</span>
-              <span class="kbd-hint">Scroll to zoom · drag empty space to pan</span>
+          <div class="editor-bar">
+            <div class="seg tools" id="adv-tools">
+              <button data-tool="select" class="on" title="Select and resize (V)">Select</button>
+              <button data-tool="pen" title="Draw a flap from an edge (P)">Pen</button>
+              <button data-tool="cut" title="Draw a cut-out (C)">Cut-out</button>
+            </div>
+            <div class="view-tools">
+              <label class="snap" title="Snap to grid">Snap
+                <select id="adv-snap"><option value="0">Off</option><option value="1" selected>1 mm</option><option value="5">5 mm</option><option value="10">10 mm</option></select>
+              </label>
+              <button class="icon" id="adv-zoom-out" title="Zoom out">−</button>
+              <button class="icon" id="adv-zoom-in" title="Zoom in">+</button>
+              <button class="btn small" id="adv-fit" title="Fit to view">Fit</button>
             </div>
           </div>
-          <div class="adv-editor" id="adv-editor"></div>
+          <div class="adv-editor" id="adv-editor">
+            <p class="editor-hint" id="adv-tool-hint"></p>
+          </div>
         </div>
         <div class="viewer" id="adv-viewer">
           <div class="viewer-controls">

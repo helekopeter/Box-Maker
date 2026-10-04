@@ -143,3 +143,27 @@ describe('carrying decals over', () => {
     }
   });
 });
+
+describe('layers', () => {
+  it('ignores the layer of a panel that does not lie against anything', () => {
+    const d = tray();
+    // Flaps on top of each wall, folded inwards over the wall tops.
+    for (const w of d.panels.slice(0, 4)) {
+      const f = makeChild(d, w.id, 2)!;
+      f.layer = -1;
+      d.panels.push(f);
+    }
+    const dl = toDieline(d);
+    for (const p of dl.panels.filter((x) => x.parent && x.parent !== BASE_ID)) expect(p.offset).toBe(0);
+  });
+
+  it('keeps the layer of a glue tab that lies inside a neighbouring wall', async () => {
+    const { EXAMPLES } = await import('../src/universe/examples');
+    const ex = EXAMPLES.find((e) => e.name === 'Pentagon box')!;
+    if (ex.data.kind !== 'advanced') throw new Error();
+    const dl = toDieline(ex.data.design);
+    const tabs = dl.panels.filter((p) => p.kind === 'glue');
+    expect(tabs.length).toBe(5);
+    for (const t of tabs) expect(t.offset).toBe(-1);
+  });
+});

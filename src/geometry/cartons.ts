@@ -74,12 +74,12 @@ function body(p: BoxParams): Body {
  * Dust flaps on the two side walls, tucked under a lid. At the end next to the wall the
  * tuck flap slides down behind, they stop short to leave room for it.
  */
-function dustFlaps(b: Body, e: End, tuckInto: 'front' | 'back') {
+function dustFlaps(b: Body, e: End, tuckInto: 'front' | 'back', clearance: number) {
   const { L, W, t } = b;
   const D = Math.min(L * 0.42, Math.max(10, W * 0.7));
   const s = Math.min(W * 0.25, D * 0.35);
   const r = Math.min(t / 2, 1); // relief so the flap clears the neighbouring hinges
-  const gap = 2.5 * t + 1; // room for the tuck flap between wall and dust flap
+  const gap = Math.max(2.5 * t + 1, clearance); // room for the tuck flap between wall and dust flap
   for (const side of ['right', 'left'] as const) {
     const x = b.x[side];
     // On the sheet the right wall starts at the front corner, the left wall at the back.
@@ -104,7 +104,8 @@ function tuckEnd(b: Body, e: End, attach: 'back' | 'front') {
   const i = Math.min(t, 1.5); // side inset so the tuck slides in
   const R = Math.min(T * 0.8, (L - 2 * i) / 3);
   const x0 = b.x[attach];
-  dustFlaps(b, e, attach === 'back' ? 'front' : 'back');
+  const motion = tuckMotion(W, T, t);
+  dustFlaps(b, e, attach === 'back' ? 'front' : 'back', motion.clearance);
   const lid = e.poly([[x0, 0], [x0 + L, 0], [x0 + L, W], [x0, W]]);
   b.panels.push({
     id: e.name, piece: 0, kind: 'face', poly: lid,
@@ -124,7 +125,7 @@ function tuckEnd(b: Body, e: End, attach: 'back' | 'front') {
   b.panels.push({
     id: `${e.name}-tuck`, piece: 0, kind: 'flap', poly: e.poly(pts),
     parent: e.name, hinge: [e.at(tx0, W), e.at(tx1, W)], stage: 3, offset: -1,
-    motion: tuckMotion(W, T, t),
+    motion: motion.keys,
   });
   // A lid on the back reads upside down on the sheet; one on the front doesn't.
   b.faces.push({
@@ -138,7 +139,7 @@ function tuckEnd(b: Body, e: End, attach: 'back' | 'front') {
  * chosen so the tip slides down just behind the inside of the opposite wall, which is how
  * the flap goes in when you close the lid by hand. Before that it bends in gradually.
  */
-function tuckMotion(W: number, T: number, t: number): [number, number][] {
+function tuckMotion(W: number, T: number, t: number): { keys: [number, number][]; clearance: number } {
   const rad = Math.PI / 180;
   const c = 1.25 * t + 0.25; // how far behind the wall's outer face the tip slides
   const ease = (x: number) => x * x * (3 - 2 * x);
@@ -163,7 +164,28 @@ function tuckMotion(W: number, T: number, t: number): [number, number][] {
     return [s, theta];
   });
   keys[keys.length - 1] = [1, 90];
-  return keys;
+
+  // How far behind the wall the flap passes at the height of the dust flaps (just under the
+  // lid), so the dust flaps can stop short of that. Measured on the flap's inner face, with
+  // the inward layering nudge it gets as it closes.
+  let clearance = 0;
+  for (const [s, theta] of keys) {
+    const a = 90 * ease(s);
+    const zh = -W * (1 - Math.sin(a * rad));
+    const yh = W * Math.cos(a * rad);
+    const phi = (a + theta - 90) * rad;
+    const dir = [Math.cos(phi), -Math.sin(phi)];
+    const out = [Math.sin(phi), Math.cos(phi)]; // the flap's outside normal
+    const shift = -t * ease(s) - t; // layering nudge, then across to the inner face
+    const z0 = zh + out[0] * shift;
+    const y0 = yh + out[1] * shift;
+    const level = -2 * t; // underside of the dust flaps
+    if (Math.abs(dir[1]) < 1e-6) continue;
+    const k = (level - y0) / dir[1];
+    if (k < 0 || k > T) continue;
+    clearance = Math.max(clearance, -(z0 + dir[0] * k));
+  }
+  return { keys, clearance: clearance + Math.max(0.5, t) };
 }
 
 /** Seal end: side flaps fold in, then the back and front flaps fold over and are glued. */

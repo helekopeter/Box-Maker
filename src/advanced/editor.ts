@@ -367,7 +367,7 @@ export class Editor {
       return;
     }
     if (d) {
-      this.dragTo(d, p);
+      this.dragTo(d, p, e.shiftKey);
       return;
     }
     if (this.tool === 'pen') {
@@ -417,7 +417,8 @@ export class Editor {
     this.render();
   }
 
-  private dragTo(d: Drag, p: Vec2) {
+  /** `shift` lets a narrowing handle move one side only (otherwise both stay symmetric). */
+  private dragTo(d: Drag, p: Vec2, shift = false) {
     if (d.kind === 'pan') return;
     const pl = this.placed.get(d.id);
     if (!pl) return;
@@ -436,8 +437,14 @@ export class Editor {
       moveVertex(this.design, d.id, d.index, toLocal(pl, s));
     } else if (panel.shape.type === 'rect') {
       if (d.kind === 'depth') panel.shape.depth = Math.max(1, this.snapVal(v));
-      if (d.kind === 'taper0') panel.shape.taper0 = this.snapVal(u);
-      if (d.kind === 'taper1') panel.shape.taper1 = this.snapVal(pl.hinge - u);
+      if (d.kind === 'taper0') {
+        panel.shape.taper0 = this.snapVal(u);
+        if (!shift) panel.shape.taper1 = panel.shape.taper0;
+      }
+      if (d.kind === 'taper1') {
+        panel.shape.taper1 = this.snapVal(pl.hinge - u);
+        if (!shift) panel.shape.taper0 = panel.shape.taper1;
+      }
     }
     this.changed();
   }
@@ -455,6 +462,20 @@ export class Editor {
     this.selectedVertex = null;
     this.changed();
     this.onSelect();
+    this.keepInView(child.id);
+  }
+
+  /** Re-fits the view if a panel ended up (partly) off screen. */
+  private keepInView(id: string) {
+    const pl = this.placed.get(id);
+    const r = this.host.getBoundingClientRect();
+    if (!pl || !r.width) return;
+    const off = pl.poly.some(([x, y]) => {
+      const sx = this.view.tx + x * this.view.scale;
+      const sy = this.view.ty + y * this.view.scale;
+      return sx < 10 || sy < 10 || sx > r.width - 10 || sy > r.height - 10;
+    });
+    if (off) this.fit();
   }
 
   private penClick(p: Vec2) {
@@ -514,6 +535,7 @@ export class Editor {
     this.changed();
     this.onSelect();
     this.hint();
+    this.keepInView(child.id);
   }
 
   private cutClick(p: Vec2) {
@@ -551,7 +573,7 @@ export class Editor {
 
   private hint() {
     const hints: Record<Tool, string> = {
-      select: 'Click + on an edge to add a wall or flap. Drag the orange handles to resize. Double-click an edge to add a corner.',
+      select: 'Click + on an edge to add a wall or flap · drag orange handles to resize (Shift: one side) · double-click an edge to add a corner · scroll to zoom, drag empty space to pan · Ctrl+Z undo',
       pen: this.pen
         ? 'Click to add points. Click the starting edge again to finish (Backspace undoes a point, Esc cancels).'
         : 'Click a free edge to start drawing a flap from it.',

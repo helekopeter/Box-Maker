@@ -1,5 +1,6 @@
 import { sanitizeDecals } from '../decals';
-import { foldedBounds } from '../geometry/fold';
+import { Vector3 } from 'three';
+import { foldedBounds, localMatrices } from '../geometry/fold';
 import { finish } from '../geometry/styles';
 import { pointInPoly } from '../geometry/surface';
 import type { Decal, Dieline, Face, Panel, PanelKind, Vec2 } from '../types';
@@ -211,6 +212,7 @@ export function rawPanels(d: AdvancedDesign): Panel[] {
 /** Converts a design into a dieline the 3D preview and exporters understand. */
 export function toDieline(d: AdvancedDesign): Dieline {
   const panels = rawPanels(d);
+  applyLayers(panels, d.thickness);
   const dl = finish({
     panels,
     faces: designFaces(d),
@@ -223,6 +225,33 @@ export function toDieline(d: AdvancedDesign): Dieline {
   const box = foldedBounds(dl, 1, { thickness: d.thickness });
   dl.outer = [box.max.x - box.min.x, box.max.z - box.min.z, box.max.y - box.min.y];
   return dl;
+}
+
+/**
+ * A panel's layer only matters where it ends up lying against another panel once folded
+ * (a glue tab inside a wall, flaps stacked under a lid). Elsewhere a layer would just
+ * shift it off the edge it is hinged to, so it is ignored.
+ */
+function applyLayers(panels: Panel[], thickness: number) {
+  const mats = localMatrices({ panels } as Dieline, 1);
+  const tol = Math.max(thickness * 1.5, 0.5);
+  const frames = new Map(panels.map((p) => [p.id, { m: mats.get(p.id)!, inv: mats.get(p.id)!.clone().invert() }]));
+  for (const A of panels) {
+    if (!A.offset) continue;
+    // Sample points well inside A, so touching along an edge doesn't count.
+    const c: Vec2 = [A.poly.reduce((n, q) => n + q[0], 0) / A.poly.length, A.poly.reduce((n, q) => n + q[1], 0) / A.poly.length];
+    const samples: Vec2[] = [c, ...A.poly.map((q) => [c[0] + (q[0] - c[0]) * 0.7, c[1] + (q[1] - c[1]) * 0.7] as Vec2)];
+    const fa = frames.get(A.id)!;
+    const overlapsSomething = panels.some((B) => {
+      if (B === A) return false;
+      const fb = frames.get(B.id)!;
+      return samples.some((s) => {
+        const w = new Vector3(s[0], -s[1], 0).applyMatrix4(fa.m).applyMatrix4(fb.inv);
+        return Math.abs(w.z) < tol && pointInPoly([w.x, -w.y], B.poly);
+      });
+    });
+    if (!overlapsSomething) A.offset = 0;
+  }
 }
 
 /** Printable faces: axis-aligned rectangles on the sheet (decals need those). */
@@ -344,7 +373,7 @@ export function makeChild(d: AdvancedDesign, parentId: string, edge: number): Cu
     shape: { type: 'rect', depth, taper0: taper, taper1: taper },
     angle: 90,
     order: parent.depth + 1,
-    layer: onBase ? 0 : -1,
+    layer: 0,
     holes: [],
   };
 }

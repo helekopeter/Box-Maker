@@ -342,3 +342,15 @@ dialog#share-dialog::backdrop { background: rgba(20, 16, 10, 0.45); }
   .kbd-hint { display: none; }
   .uni-tools input[type='search'] { flex: 1; width: auto; }
 }
+
+/* Editor toolbar (inside the design panel) */
+.editor-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); }
+.editor-bar .seg { margin: 0; }
+.editor-bar .seg button { padding: 5px 12px; font-size: 13px; font-weight: 600; }
+.view-tools { display: flex; align-items: center; gap: 6px; }
+.view-tools .snap { margin: 0 4px 0 0; }
+.view-tools .icon { font-size: 16px; line-height: 1; }
+.editor-hint {
+  position: absolute; left: 10px; bottom: 10px; right: 10px; margin: 0; z-index: 1; pointer-events: none;
+  font-size: 12px; color: var(--muted); text-shadow: 0 0 4px var(--panel), 0 0 4px var(--panel);
+}

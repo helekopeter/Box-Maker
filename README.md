@@ -15,7 +15,7 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
    - Open tray
    - Tray + lid
    - Tray + sleeve
-2. **Enter the inside dimensions** (mm or inches) and pick the material thickness. Panels are enlarged automatically to make room for the material.
+2. **Enter the inside dimensions** (mm or inches) and pick the material: paper, thin card, cardboard, grey board, corrugated or double wall, or a custom thickness. Panels are enlarged automatically to make room for the material.
 3. **Choose a colour and add decals** (text or uploaded images). Drag them around on the 3D box. A decal that hangs over an edge wraps onto the next side like a sticker. If the two sides aren't next to each other on the flat sheet (across the glue seam, a lid edge, or the two top flaps), it is split automatically in the cut file.
 4. **Download an SVG or PDF.** The page is sized 1:1 to the sheet in millimetres.
 
@@ -26,12 +26,12 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
 Draw a box from scratch. You start with a single square (the base, which lies on the table).
 
 - **Add panels:** click **+** on any free edge to add a wall (off the base) or a flap (off anything else).
-- **Edit a panel:** select it to set its depth, how much it narrows at each end, its inset along the edge, and its type (wall, flap or glue tab). You can also drag its orange handles.
-- **Fold angle:** positive folds inwards, negative outwards; there are quick presets for 90° in, 90° out, flat and 180° over. **Fold order** sets what folds first, and **layer** decides which panel ends up on top where panels overlap.
+- **Edit a panel:** select it to set its depth, how much it narrows at each end (symmetric by default; hold Shift while dragging a corner handle to move one side), its inset along the edge, and its type (wall, flap or glue tab). You can also drag its orange handles.
+- **Fold angle:** positive folds inwards, negative outwards; there are quick presets for 90° in, 90° out, flat and 180° over. **Fold order** sets what folds first, and **layer** decides which panel ends up on top where panels overlap once folded (it's ignored for panels that don't lie against anything).
 - **Pen tool (P):** click a free edge, click some points, then click the same edge again to make a free-form flap.
 - **Cut-out tool (C):** click inside a panel, draw a shape, and click the first point again (or press Enter).
 - **Free-form shape:** turns any panel, including the base, into editable corners. Drag them, double-click an edge to add a corner, and select a corner and press Delete to remove it.
-- **Undo/redo** with Ctrl+Z and Ctrl+Shift+Z, plus grid snapping and zoom/pan.
+- **Undo/redo** with Ctrl+Z and Ctrl+Shift+Z. Tools are at the top left of the design panel; snapping, zoom and Fit at the top right.
 - Panels that would overlap on the sheet are shown in red.
 - Decals go on rectangular walls.
 

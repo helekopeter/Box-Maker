@@ -80,6 +80,7 @@ function findCrossings(d: Dieline, t: number, steps = 400): Crossing[] {
 // A cube plus a few awkward proportions and board thicknesses.
 const sizes: [number, number, number, number][] = [
   [100, 100, 100, 1.5],
+  [80, 50, 120, 0.3], // paper
   [200, 60, 150, 3],
   [60, 150, 40, 3],
   [300, 200, 100, 4],

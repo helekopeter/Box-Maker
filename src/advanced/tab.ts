@@ -54,6 +54,8 @@ export class AdvancedTab {
   private artToken = 0;
   private reframe = true;
   private framedSize = 0;
+  /** Narrow start/end move together. */
+  private linkTaper = true;
 
   constructor() {
     const saved = loadSaved();
@@ -167,8 +169,6 @@ export class AdvancedTab {
     document.querySelectorAll<HTMLButtonElement>('#adv-tools button[data-tool]').forEach((b) =>
       b.addEventListener('click', () => this.setTool(b.dataset.tool as Tool)),
     );
-    $('#adv-undo').addEventListener('click', () => this.editor.undo());
-    $('#adv-redo').addEventListener('click', () => this.editor.redo());
     $('#adv-fit').addEventListener('click', () => this.editor.fit());
     $('#adv-zoom-in').addEventListener('click', () => this.editor.zoomBy(1.25));
     $('#adv-zoom-out').addEventListener('click', () => this.editor.zoomBy(0.8));
@@ -243,7 +243,7 @@ export class AdvancedTab {
   private syncLook() {
     $<HTMLInputElement>('#adv-color').value = this.design.color;
     syncSwatches($('#adv-swatches'), this.design.color);
-    const preset = ['1', '1.5', '2', '3', '4'].find((m) => parseFloat(m) === this.design.thickness);
+    const preset = ['0.3', '1', '1.5', '2', '3', '4'].find((m) => parseFloat(m) === this.design.thickness);
     $<HTMLSelectElement>('#adv-material').value = preset ?? 'custom';
     $('#adv-thickness-row').hidden = !!preset;
     $<HTMLInputElement>('#adv-thickness').value = String(this.design.thickness);
@@ -305,17 +305,43 @@ export class AdvancedTab {
 
     const kinds = el('div', { className: 'seg wide' });
     for (const k of ['wall', 'flap', 'glue'] as CustomKind[]) {
-      const b = button(KIND_LABEL[k], () => edit('kind', () => (p.kind = k)), k === p.kind ? 'on' : '');
+      const b = button(KIND_LABEL[k], () => {
+        edit('kind', () => {
+          // Glue tabs normally lie inside a neighbouring wall; other panels sit in place.
+          if (k === 'glue' && p.layer === 0) p.layer = -1;
+          if (k !== 'glue' && p.kind === 'glue' && p.layer === -1) p.layer = 0;
+          p.kind = k;
+        });
+        this.renderInspector();
+      }, k === p.kind ? 'on' : '');
       kinds.append(b);
     }
     host.append(kinds);
 
     if (p.shape.type === 'rect') {
       const s = p.shape;
+      // Narrowing is symmetric unless unlinked (or Shift is held while dragging a handle).
+      const t0 = field('Narrow start', s.taper0, 't0', (v) => {
+        s.taper0 = v;
+        if (this.linkTaper) {
+          s.taper1 = v;
+          t1.querySelector('input')!.value = String(Math.round(v * 100) / 100);
+        }
+      }, { unit: 'mm' });
+      const t1 = field('Narrow end', s.taper1, 't0', (v) => {
+        s.taper1 = v;
+        if (this.linkTaper) {
+          s.taper0 = v;
+          t0.querySelector('input')!.value = String(Math.round(v * 100) / 100);
+        }
+      }, { unit: 'mm' });
+      const link = el('input', { type: 'checkbox', checked: this.linkTaper });
+      link.addEventListener('change', () => (this.linkTaper = link.checked));
       host.append(
         field('Depth', s.depth, 'depth', (v) => (s.depth = v), { min: 1, unit: 'mm' }),
-        field('Narrow start', s.taper0, 't0', (v) => (s.taper0 = v), { unit: 'mm' }),
-        field('Narrow end', s.taper1, 't1', (v) => (s.taper1 = v), { unit: 'mm' }),
+        t0,
+        t1,
+        el('label', { className: 'check', title: 'Hold Shift while dragging a corner handle to move one side only' }, link, 'Same on both ends'),
       );
     } else {
       host.append(el('p', { className: 'hint', textContent: 'Free-form panel: drag its corners. Double-click an edge to add a corner; select a corner and press Delete to remove it.' }));
