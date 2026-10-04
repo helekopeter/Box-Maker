@@ -3,7 +3,8 @@ import { bedWarning, bindBedInputs, fitsBed, onBedChange } from '../bed';
 import { DecalLayer } from '../decals';
 import { bindCopies, copiesIds, downloadBox } from '../export/download';
 import { BoxPreview } from '../preview3d';
-import type { Decal, Dieline, ExportOptions, FoldMode, Vec2 } from '../types';
+import type { Appearance, Decal, Dieline, ExportOptions, FoldMode, Vec2 } from '../types';
+import { bindTexture, loadTexture, saveTexture } from '../texture';
 import { $, buildSwatches, el, syncSwatches, toast } from '../ui';
 import { Editor, type Tool } from './editor';
 import {
@@ -25,6 +26,8 @@ function loadSaved(): Saved {
     if (!raw) return fallback;
     const s = JSON.parse(raw) as Partial<Saved>;
     const design = sanitizeDesign(s.design);
+    const texture = loadTexture(STORAGE_KEY);
+    if (design && texture) design.texture = texture;
     return { design: design ?? fallback.design, exp: { ...fallback.exp, ...s.exp } };
   } catch {
     return fallback;
@@ -58,6 +61,7 @@ export class AdvancedTab {
   /** Narrow start/end move together. */
   private linkTaper = true;
   private refreshCopies = () => {};
+  private syncTexture = () => {};
 
   constructor() {
     const saved = loadSaved();
@@ -90,6 +94,11 @@ export class AdvancedTab {
 
   get design(): AdvancedDesign {
     return this.editor.design;
+  }
+
+  private look(): Appearance {
+    const d = this.design;
+    return { color: d.color, decals: d.decals ?? [], ...(d.texture ? { texture: d.texture } : {}) };
   }
 
   // -------------------------------------------------------------------------
@@ -126,6 +135,7 @@ export class AdvancedTab {
     this.renderArt();
     this.renderStats();
     this.refreshCopies();
+    this.syncTexture();
     this.syncLook();
   }
 
@@ -134,7 +144,7 @@ export class AdvancedTab {
     const dl = this.dieline;
     const scale = Math.min(4, 4096 / Math.max(dl.width, dl.height));
     const off = document.createElement('canvas');
-    await renderArtwork(dl, { color: this.design.color, decals: this.design.decals ?? [] }, { scale, preview: true, selected: this.decals.selected }, off);
+    await renderArtwork(dl, this.look(), { scale, preview: true, selected: this.decals.selected }, off);
     if (token !== this.artToken) return;
     this.artCanvas.width = off.width;
     this.artCanvas.height = off.height;
@@ -146,7 +156,9 @@ export class AdvancedTab {
     clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ design: this.design, exp: this.exp }));
+        const { texture, ...design } = this.design;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ design, exp: this.exp }));
+        saveTexture(STORAGE_KEY, texture);
       } catch {
         /* storage full or unavailable */
       }
@@ -205,6 +217,18 @@ export class AdvancedTab {
     $<HTMLInputElement>('#adv-includeArtwork').addEventListener('change', (e) => (this.exp.includeArtwork = (e.target as HTMLInputElement).checked));
     bindBedInputs($<HTMLInputElement>('#adv-bedW'), $<HTMLInputElement>('#adv-bedH'));
     onBedChange(() => this.renderStats());
+    this.syncTexture = bindTexture('adv-', {
+      get: () => this.design.texture,
+      set: (t) => {
+        if (t) this.design.texture = t;
+        else delete this.design.texture;
+        this.queue();
+        this.save();
+      },
+      dieline: () => this.dieline,
+      look: () => this.look(),
+      name: () => this.baseName(),
+    });
     const { input, hint } = copiesIds('adv-');
     this.refreshCopies = bindCopies(input, hint, this.exp, () => this.dieline, () => this.save());
     onBedChange(() => this.refreshCopies());
@@ -507,11 +531,11 @@ export class AdvancedTab {
   }
 
   downloadSvg() {
-    return downloadBox('svg', this.dieline, { color: this.design.color, decals: this.design.decals ?? [] }, this.exp, this.baseName());
+    return downloadBox('svg', this.dieline, this.look(), this.exp, this.baseName());
   }
 
   downloadPdf() {
-    return downloadBox('pdf', this.dieline, { color: this.design.color, decals: this.design.decals ?? [] }, this.exp, this.baseName());
+    return downloadBox('pdf', this.dieline, this.look(), this.exp, this.baseName());
   }
 
   share(): AdvancedShare {

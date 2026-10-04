@@ -101,6 +101,13 @@
           <h2><span class="step">3</span> Look</h2>
           <div class="swatches" id="swatches"></div>
           <label class="row">Custom colour<input type="color" id="color" /></label>
+          <div class="texture-row">
+            <span>Texture</span>
+            <button class="btn small" id="tex-template" title="A PDF of the sheet to paint over in Photoshop or any image editor">Template PDF</button>
+            <label class="btn small">Import…<input type="file" id="tex-import" accept="image/png,image/jpeg,image/webp" hidden /></label>
+            <button class="btn small danger" id="tex-remove" hidden>Remove</button>
+          </div>
+          <p class="hint" id="tex-hint">Download the template, paint over it (keep the page size), save it as PNG or JPG and import it.</p>
         </section>
 
         <section class="panel">
@@ -178,6 +185,13 @@
           <label class="row" id="adv-thickness-row" hidden>Thickness (mm)<input type="number" id="adv-thickness" min="0.2" max="10" step="0.1" /></label>
           <div class="swatches" id="adv-swatches"></div>
           <label class="row">Custom colour<input type="color" id="adv-color" /></label>
+          <div class="texture-row">
+            <span>Texture</span>
+            <button class="btn small" id="adv-tex-template" title="A PDF of the sheet to paint over in Photoshop or any image editor">Template PDF</button>
+            <label class="btn small">Import…<input type="file" id="adv-tex-import" accept="image/png,image/jpeg,image/webp" hidden /></label>
+            <button class="btn small danger" id="adv-tex-remove" hidden>Remove</button>
+          </div>
+          <p class="hint" id="adv-tex-hint">Download the template, paint over it (keep the page size), save it as PNG or JPG and import it.</p>
           <div class="stats" id="adv-stats"></div>
         </section>
 

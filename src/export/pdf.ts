@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
-import { renderArtwork } from '../artwork';
+import { faceFrame, faceSize, renderArtwork } from '../artwork';
+import { apply } from '../geometry/surface';
 import { chainSegments, computeLines, dashSegments, type Segment } from '../geometry/lines';
 import type { Appearance, Dieline, ExportOptions, Vec2 } from '../types';
 import { COLORS } from './svg';
@@ -35,6 +36,62 @@ export async function buildPdfPages(sheets: { dieline: Dieline; look: Appearance
     if (i) doc.addPage([dieline.width, dieline.height], orientation(dieline));
     await drawPage(doc, dieline, look, opts);
   }
+  return doc.output('blob');
+}
+
+/**
+ * A template for painting a texture: the sheet at its real size with the box's current look,
+ * the cut and fold lines, the glue areas (hidden once folded) and each side's name, written
+ * the right way up as it will be on the box. Paint over it, keep the page size, import it.
+ */
+export async function buildTemplatePdf(d: Dieline, look: Appearance): Promise<Blob> {
+  const W = d.width;
+  const H = d.height;
+  const doc = new jsPDF({ unit: 'mm', format: [W, H], orientation: W > H ? 'landscape' : 'portrait', compress: true });
+  doc.setProperties({ title: `Box texture template ${Math.round(W)} × ${Math.round(H)} mm`, creator: 'Box Maker' });
+  const scale = Math.min(150 / 25.4, 5000 / Math.max(W, H));
+  const canvas = await renderArtwork(d, look, { scale, preview: false });
+  doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, W, H, undefined, 'FAST');
+
+  const { cuts, folds } = computeLines(d);
+  doc.saveGraphicsState();
+  doc.setGState(doc.GState({ opacity: 0.3 }));
+  doc.setFillColor(...hex(COLORS.glue));
+  for (const p of d.panels) if (p.kind === 'glue') drawPoly(doc, p.poly, 'F', true);
+  doc.restoreGraphicsState();
+
+  // Side names, upright as on the box, with an arrow pointing up.
+  doc.setTextColor(90, 90, 90);
+  doc.setDrawColor(90, 90, 90);
+  doc.setFillColor(90, 90, 90);
+  for (const f of d.faces) {
+    const { w, h } = faceSize(f);
+    const size = Math.max(2.5, Math.min(12, Math.min(w, h) / 6));
+    const m = faceFrame(f);
+    const at = apply(m, [0, size * 0.6]);
+    doc.setFontSize(size / 0.3528);
+    doc.text(f.label, at[0], at[1], { align: 'center', baseline: 'middle', angle: -f.rotation });
+    const tip = apply(m, [0, -size * 1.2]);
+    const l = apply(m, [-size * 0.45, -size * 0.35]);
+    const r = apply(m, [size * 0.45, -size * 0.35]);
+    doc.triangle(tip[0], tip[1], l[0], l[1], r[0], r[1], 'F');
+  }
+
+  doc.setLineWidth(0.25);
+  doc.setDrawColor(...hex(COLORS.score));
+  doc.setLineDashPattern([2, 1.5], 0);
+  drawSegments(doc, folds);
+  doc.setLineDashPattern([], 0);
+  doc.setDrawColor(...hex(COLORS.cut));
+  for (const c of chainSegments(cuts)) {
+    const first = c[0];
+    const last = c[c.length - 1];
+    const closed = c.length > 2 && Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-3;
+    drawPoly(doc, closed ? c.slice(0, -1) : c, 'S', closed);
+  }
+  doc.setFontSize(2.4 / 0.3528);
+  doc.setTextColor(140, 140, 140);
+  doc.text('Box Maker texture template: paint over this page (paint past the red lines), keep the page size, save as PNG or JPG and import it.', 2, H - 1.4);
   return doc.output('blob');
 }
 

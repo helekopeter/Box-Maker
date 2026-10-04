@@ -132,9 +132,9 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** Traces a panel outline plus its holes; fill or clip with 'evenodd'. */
-function tracePanel(ctx: CanvasRenderingContext2D, p: Panel) {
-  ctx.beginPath();
+/** Traces a panel outline plus its holes; fill or clip with 'evenodd'. `begin: false` adds to the current path. */
+function tracePanel(ctx: CanvasRenderingContext2D, p: Panel, begin = true) {
+  if (begin) ctx.beginPath();
   for (const loop of [p.poly, ...(p.holes ?? [])]) {
     loop.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.closePath();
@@ -159,6 +159,14 @@ export async function renderArtwork(
 ): Promise<HTMLCanvasElement> {
   // Load images before touching the canvas so a redraw never shows a half-finished state.
   const images = new Map<string, HTMLImageElement>();
+  let texture: HTMLImageElement | null = null;
+  if (look.texture) {
+    try {
+      texture = await loadImage(look.texture.src);
+    } catch {
+      /* broken image: skip */
+    }
+  }
   await Promise.all(
     look.decals
       .filter((dc) => dc.type === 'image' && dc.src)
@@ -186,6 +194,20 @@ export async function renderArtwork(
     if (p.kind === 'glue') continue;
     tracePanel(ctx, p);
     ctx.fill('evenodd');
+  }
+  // A painted texture covers the whole sheet; only the printed panels show it.
+  if (texture) {
+    const parts = look.texture!.parts ?? [{ matrix: [1, 0, 0, 1, 0, 0], size: [d.width, d.height], panels: d.panels.map((p) => p.id) }];
+    for (const part of parts) {
+      const on = new Set(part.panels);
+      ctx.save();
+      ctx.beginPath();
+      for (const p of d.panels) if (p.kind !== 'glue' && on.has(p.id)) tracePanel(ctx, p, false);
+      ctx.clip('evenodd');
+      ctx.transform(...part.matrix);
+      ctx.drawImage(texture, 0, 0, part.size[0], part.size[1]);
+      ctx.restore();
+    }
   }
   if (opts.preview) {
     for (const p of d.panels) {

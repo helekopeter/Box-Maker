@@ -56,6 +56,23 @@ export function buildSvg(d: Dieline, look: Appearance, opts: SvgOptions): string
       .map((p) => [p.poly, ...(p.holes ?? [])].map((loop) => polyPath(loop, true)).join(' '))
       .join(' ');
     body.push(`<path d="${bg}" fill="${esc(look.color)}" fill-rule="evenodd" stroke="none"/>`);
+    if (look.texture) {
+      // The painted texture covers the sheet; clip it to the printed panels. (Copies on a
+      // sheet each get their own placement of it.)
+      const tex = look.texture;
+      const parts = tex.parts ?? [{ matrix: [1, 0, 0, 1, 0, 0], size: [d.width, d.height], panels: d.panels.map((p) => p.id) }];
+      defs.push(`<image id="texture" href="${esc(tex.src)}" preserveAspectRatio="none" width="1" height="1"/>`);
+      parts.forEach((part, i) => {
+        const on = new Set(part.panels);
+        const clip = d.panels
+          .filter((p) => p.kind !== 'glue' && on.has(p.id))
+          .map((p) => [p.poly, ...(p.holes ?? [])].map((loop) => polyPath(loop, true)).join(' '))
+          .join(' ');
+        defs.push(`<clipPath id="tex-clip-${i}"><path d="${clip}" clip-rule="evenodd"/></clipPath>`);
+        const [w, h] = part.size;
+        body.push(`<g clip-path="url(#tex-clip-${i})"><use href="#texture" transform="matrix(${part.matrix.map(n).join(' ')}) scale(${n(w)} ${n(h)})"/></g>`);
+      });
+    }
     const clipped = new Set<string>();
     look.decals.forEach((dc, i) => {
       const pieces = decalPieces(d, dc);

@@ -383,6 +383,10 @@ dialog#share-dialog::backdrop { background: rgba(20, 16, 10, 0.45); }
 }
 
 /* Shape Builder: the last style card takes a 2 × 2 block of the grid. */
+.hint.warn { color: #b45f06; }
+.texture-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+.texture-row span { flex: 1; min-width: 60px; }
+.texture-row label.btn { cursor: pointer; }
 .grid3.two { grid-template-columns: 1fr 1fr; }
 .style-card.big { grid-column: span 2; grid-row: span 2; justify-content: center; gap: 8px; font-size: 14px; padding: 14px; }
 .style-card.big svg { width: 92px; height: 92px; }

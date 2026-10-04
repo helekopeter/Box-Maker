@@ -75,4 +75,24 @@ describe('copies on a sheet', () => {
     expect(all.filter((r) => r.startsWith('lid-')).length).toBe(3);
     expect(all.length).toBe(6);
   });
+
+  it('moves a painted texture along with each copy', () => {
+    const d = generateDieline({ ...params, length: 300, width: 40, height: 20 });
+    const texture = { src: 'data:image/png;base64,AAAA', width: d.width, height: d.height };
+    // A portrait bed: the copies are turned, so the texture has to turn with them.
+    const { sheets } = layoutCopies(d, { color: '#fff', decals: [], texture }, 2, [250, 800]);
+    const { dieline, look } = sheets[0];
+    expect(look.texture!.parts!.length).toBe(2);
+    for (const part of look.texture!.parts!) {
+      const [a, b, c, dd, e, f] = part.matrix;
+      for (const id of part.panels) {
+        const copy = dieline.panels.find((p) => p.id === id)!;
+        const orig = d.panels.find((p) => p.id === id.split('~')[0])!;
+        orig.poly.forEach(([x, y], i) => {
+          expect(a * x + c * y + e).toBeCloseTo(copy.poly[i][0], 6);
+          expect(b * x + dd * y + f).toBeCloseTo(copy.poly[i][1], 6);
+        });
+      }
+    }
+  });
 });

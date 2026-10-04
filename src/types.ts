@@ -119,9 +119,24 @@ export interface Decal {
   aspect?: number;
 }
 
+/** A picture painted over the template, covering the whole sheet. */
+export interface Texture {
+  /** Image data URL. */
+  src: string;
+  /** Size (mm) of the sheet the template was made for. */
+  width: number;
+  height: number;
+  /**
+   * Export only: copies laid out on a sheet. Each part shows the texture (stretched over
+   * the original sheet, `size`) moved by `matrix` (canvas order), on the listed panels.
+   */
+  parts?: { matrix: [number, number, number, number, number, number]; size: [number, number]; panels: string[] }[];
+}
+
 export interface Appearance {
   color: string;
   decals: Decal[];
+  texture?: Texture;
 }
 
 export type FoldMode = 'score' | 'perforate';

@@ -1,7 +1,7 @@
 import { decalCenter, faceSize, hitDecal, setDecalCenter } from './artwork';
 import { angleOf, apply, applyLinear, faceAt, invert, multiply, unfoldFrom, wrapPoint } from './geometry/surface';
 import type { BoxPreview, SurfaceHit } from './preview3d';
-import type { Decal, Dieline, Face, Vec2 } from './types';
+import type { Decal, Dieline, Face, Texture, Vec2 } from './types';
 import { el, readImage, uid } from './ui';
 
 export interface DecalLayerOptions {
@@ -252,6 +252,15 @@ export class DecalLayer {
 }
 
 /** Keeps only well-formed decals; images must be inline data URLs. */
+/** Validates a texture loaded from a file or the Box Universe (inline raster images only). */
+export function sanitizeTexture(raw: unknown): Texture | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const t = raw as Record<string, unknown>;
+  if (typeof t.src !== 'string' || t.src.length > 8_000_000 || !/^data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(t.src)) return undefined;
+  const size = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(10000, Math.max(1, v)) : 100);
+  return { src: t.src, width: size(t.width), height: size(t.height) };
+}
+
 export function sanitizeDecals(raw: unknown): Decal[] {
   if (!Array.isArray(raw)) return [];
   const num = (v: unknown, lo: number, hi: number, d: number) =>

@@ -1,9 +1,9 @@
-import { sanitizeDecals } from '../decals';
+import { sanitizeDecals, sanitizeTexture } from '../decals';
 import { Matrix4, Vector3 } from 'three';
 import { foldedBounds, localMatrices } from '../geometry/fold';
 import { finish } from '../geometry/styles';
 import { pointInPoly } from '../geometry/surface';
-import type { Decal, Dieline, Face, Panel, PanelKind, Vec2 } from '../types';
+import type { Decal, Dieline, Face, Panel, PanelKind, Texture, Vec2 } from '../types';
 
 /**
  * A box drawn from scratch in the Advanced tab.
@@ -22,6 +22,8 @@ export interface AdvancedDesign {
   /** How the base panel sits once assembled (Euler degrees). Default: lying on the ground. */
   rotation?: [number, number, number];
   decals?: Decal[];
+  /** A painted texture over the whole sheet (see Texture). */
+  texture?: Texture;
 }
 
 /**
@@ -777,6 +779,8 @@ export function sanitizeDesign(raw: unknown): AdvancedDesign | null {
     panels: [],
   };
   if (Array.isArray(r.decals)) design.decals = sanitizeDecals(r.decals);
+  const texture = sanitizeTexture(r.texture);
+  if (texture) design.texture = texture;
   if (Array.isArray(r.rotation) && r.rotation.length === 3) {
     design.rotation = r.rotation.map((v) => num(v, -360, 360, 0)) as [number, number, number];
   }

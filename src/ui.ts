@@ -52,6 +52,29 @@ export async function readImage(file: File): Promise<string> {
   return c.toDataURL('image/png');
 }
 
+/**
+ * Reads a painted texture as a data URL: up to 4096 px across, JPEG unless the picture has
+ * see-through parts (then PNG, so the box colour shows through).
+ */
+export async function readTexture(file: File): Promise<{ src: string; aspect: number }> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const k = Math.min(1, 4096 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = el('canvas', { width: Math.round(img.naturalWidth * k), height: Math.round(img.naturalHeight * k) });
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const px = ctx.getImageData(0, 0, c.width, c.height).data;
+    let alpha = false;
+    for (let i = 3; i < px.length; i += 4 * 7) if (px[i] < 250) (alpha = true), (i = px.length);
+    return { src: alpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.9), aspect: img.naturalHeight / img.naturalWidth };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export const SWATCHES: [string, string][] = [
   ['Brown', '#c9a46b'], ['White', '#f4f1ea'], ['Black', '#222222'], ['Red', '#c0392b'],
   ['Orange', '#e67e22'], ['Yellow', '#f1c40f'], ['Green', '#3f8f4f'], ['Teal', '#2f6f8f'],

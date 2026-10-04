@@ -1,5 +1,5 @@
 import { MARGIN } from '../geometry/styles';
-import type { Appearance, Dieline, Face, Panel, Vec2 } from '../types';
+import type { Appearance, Dieline, Face, Panel, Texture, Vec2 } from '../types';
 
 /** Where one piece of one copy goes on a sheet. */
 interface Placement {
@@ -133,6 +133,7 @@ export function layoutCopies(d: Dieline, look: Appearance, copies: number, bed: 
     const faces: Face[] = [];
     const decals: Appearance['decals'] = [];
     const pieces: Dieline['pieces'] = [];
+    const parts: NonNullable<Texture['parts']> = [];
     for (const pl of s.placed) {
       const b = boxes.get(pl.piece)!;
       const sfx = (id: string) => `${id}~${pl.copy}`;
@@ -160,11 +161,18 @@ export function layoutCopies(d: Dieline, look: Appearance, copies: number, bed: 
         faces.push({ ...f, id: sfx(f.id), rect, rotation: pl.turned ? f.rotation + 90 : f.rotation });
       }
       for (const dc of look.decals) if (facePiece.get(dc.face) === pl.piece) decals.push({ ...dc, id: sfx(dc.id), face: sfx(dc.face) });
+      // The same move as `tf`, for the texture (canvas order: x' = a·x + c·y + e, y' = b·x + d·y + f).
+      const ox = MARGIN + pl.x, oy = MARGIN + pl.y;
+      parts.push({
+        matrix: pl.turned ? [0, 1, -1, 0, ox + b.h + b.y, oy - b.x] : [1, 0, 0, 1, ox - b.x, oy - b.y],
+        size: [d.width, d.height],
+        panels: d.panels.filter((p) => p.piece === pl.piece).map((p) => sfx(p.id)),
+      });
       const pc = d.pieces.find((x) => x.index === pl.piece)!;
       pieces.push({ ...pc, root: sfx(pc.root) });
     }
     const dieline: Dieline = { panels, faces, pieces, width: s.w + 2 * MARGIN - GAP, height: s.h + 2 * MARGIN - GAP, outer: d.outer };
-    return { dieline, look: { color: look.color, decals } };
+    return { dieline, look: { color: look.color, decals, ...(look.texture ? { texture: { ...look.texture, parts } } : {}) } };
   });
 
   // Whole copies per (bed-sized) sheet: the most that still pack onto one.

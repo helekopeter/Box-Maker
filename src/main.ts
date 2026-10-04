@@ -1,5 +1,6 @@
 import './style.css';
 import { fromDieline } from './advanced/convert';
+import { toDieline, type AdvancedDesign } from './advanced/model';
 import { AdvancedTab } from './advanced/tab';
 import { STYLE_INFO } from './geometry/styles';
 import { SimpleTab } from './simple';
@@ -65,12 +66,24 @@ $('#share-btn').addEventListener('click', () => {
   }
 });
 
+/**
+ * A painted texture carries over to Advanced when the sheet is laid out the same there
+ * (it is for one-piece boxes); otherwise it would no longer line up.
+ */
+function withTexture(design: AdvancedDesign): { design: AdvancedDesign; lost: boolean } {
+  const t = simple.state.look.texture;
+  if (!t) return { design, lost: false };
+  const dl = toDieline(design);
+  const same = Math.abs(dl.width - simple.dieline.width) < 0.5 && Math.abs(dl.height - simple.dieline.height) < 0.5;
+  return same ? { design: { ...design, texture: t }, lost: false } : { design, lost: true };
+}
+
 /** Simple → Advanced: turn the current ready-made box into a freely editable design. */
 $('#to-advanced').addEventListener('click', () => {
   const p = simple.state.params;
   if (p.style === 'shape' && simple.shapeResult) {
     // A built shape already is an Advanced design; its faces (and decals) carry straight over.
-    advanced.open(simple.shapeResult.design, simple.currentDecals);
+    advanced.open(withTexture(simple.shapeResult.design).design, simple.currentDecals);
     show('advanced');
     toast('Your shape is now a box in Advanced. Undo (Ctrl+Z) brings back your previous design.');
     return;
@@ -80,9 +93,11 @@ $('#to-advanced').addEventListener('click', () => {
   const decals: Decal[] = simple.currentDecals
     .filter((d) => faceIds.has(d.face))
     .map((d) => ({ ...d, face: faceIds.get(d.face)! }));
-  advanced.open(design, decals);
+  const tex = withTexture(design);
+  advanced.open(tex.design, decals);
   show('advanced');
   const notes = [
+    tex.lost ? 'The texture didn’t come across (the sheet is laid out differently).' : '',
     droppedPieces ? 'Only the tray came across; Advanced designs are one piece.' : '',
     skipped ? `${skipped} panel(s) couldn't be converted.` : '',
   ].filter(Boolean);

@@ -1,5 +1,6 @@
 import { KRAFT, renderArtwork } from './artwork';
-import { DecalLayer, sanitizeDecals } from './decals';
+import { DecalLayer, sanitizeDecals, sanitizeTexture } from './decals';
+import { bindTexture, loadTexture, previewLook, saveTexture } from './texture';
 import { bindCopies, copiesIds, downloadBox } from './export/download';
 import { buildSvg } from './export/svg';
 import { generateDieline, STYLE_INFO } from './geometry/styles';
@@ -81,12 +82,13 @@ function load(): State {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return d;
     const s = JSON.parse(raw) as Partial<State>;
+    const texture = loadTexture(STORAGE_KEY);
     return {
       ...d,
       ...s,
       params: { ...d.params, ...s.params },
       shape: sanitizeShape(s.shape) ?? d.shape,
-      look: { ...d.look, ...s.look },
+      look: { ...d.look, ...s.look, ...(texture ? { texture } : {}) },
       exp: { ...d.exp, ...s.exp },
     };
   } catch {
@@ -132,6 +134,7 @@ export class SimpleTab {
   shapeResult: NetResult | null = null;
   private shapeControls: ShapeControls;
   private refreshCopies = () => {};
+  private syncTexture = () => {};
 
   constructor() {
     this.dieline = dielineFor(this.state.params, this.state.shape, this.state.look.color);
@@ -165,7 +168,9 @@ export class SimpleTab {
     clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+        const { texture, ...look } = this.state.look;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...this.state, look }));
+        saveTexture(STORAGE_KEY, texture);
       } catch {
         // Storage full (large images) or unavailable: the app works fine without it.
       }
@@ -196,6 +201,7 @@ export class SimpleTab {
     this.decals.validate();
     this.renderStats();
     this.refreshCopies();
+    this.syncTexture();
     this.renderDieline2D();
     this.renderArt();
     const sliding = p.style === 'sleeve' || p.style === 'matchbox';
@@ -238,7 +244,7 @@ export class SimpleTab {
   private renderDieline2D() {
     cancelAnimationFrame(this.svgTimer);
     this.svgTimer = requestAnimationFrame(() => {
-      $('#dieline').innerHTML = buildSvg(this.dieline, this.state.look, { ...this.state.exp, includeArtwork: true, includeGlue: true, preview: true });
+      $('#dieline').innerHTML = buildSvg(this.dieline, previewLook(this.state.look), { ...this.state.exp, includeArtwork: true, includeGlue: true, preview: true });
     });
     $('#legend-fold').className = `sw ${this.state.exp.foldMode === 'score' ? 'fold' : 'perf'}`;
   }
@@ -391,6 +397,17 @@ export class SimpleTab {
       this.state.exp.includeArtwork = (e.target as HTMLInputElement).checked;
       this.save();
     });
+    this.syncTexture = bindTexture('', {
+      get: () => this.state.look.texture,
+      set: (t) => {
+        if (t) this.state.look.texture = t;
+        else delete this.state.look.texture;
+        this.update();
+      },
+      dieline: () => this.dieline,
+      look: () => this.state.look,
+      name: () => this.baseName(),
+    });
     const { input, hint } = copiesIds('');
     this.refreshCopies = bindCopies(input, hint, this.state.exp, () => this.dieline, () => this.save());
     onBedChange(() => this.refreshCopies());
@@ -481,7 +498,7 @@ export class SimpleTab {
   open(s: SimpleShare) {
     this.state.params = { ...defaults().params, ...s.params };
     if (s.shape) this.state.shape = s.shape;
-    this.state.look = { color: s.look.color, decals: s.look.decals };
+    this.state.look = { color: s.look.color, decals: s.look.decals, ...(s.look.texture ? { texture: s.look.texture } : {}) };
     const preset = ['0.3', '1', '1.5', '2', '3', '4'].find((m) => parseFloat(m) === this.state.params.thickness);
     this.state.material = preset ?? 'custom';
     this.syncInputs();
@@ -524,6 +541,7 @@ export function sanitizeSimple(raw: unknown): SimpleShare | null {
     look: {
       color: typeof look.color === 'string' && /^#[0-9a-f]{6}$/i.test(look.color) ? look.color : KRAFT,
       decals: sanitizeDecals(look.decals),
+      ...(sanitizeTexture(look.texture) ? { texture: sanitizeTexture(look.texture) } : {}),
     },
   };
 }

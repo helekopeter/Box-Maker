@@ -128,7 +128,7 @@ export class Editor {
       return;
     }
     this.lastCheckpoint = { key, time: now };
-    this.undoStack.push(JSON.stringify(this.design));
+    this.undoStack.push(this.snapshot());
     if (this.undoStack.length > 200) this.undoStack.shift();
     this.redoStack = [];
   }
@@ -136,8 +136,8 @@ export class Editor {
   undo() {
     const prev = this.undoStack.pop();
     if (!prev) return;
-    this.redoStack.push(JSON.stringify(this.design));
-    this.design = JSON.parse(prev);
+    this.redoStack.push(this.snapshot());
+    this.design = this.restore(prev);
     this.lastCheckpoint = { key: '', time: 0 };
     this.afterHistory();
   }
@@ -145,9 +145,21 @@ export class Editor {
   redo() {
     const next = this.redoStack.pop();
     if (!next) return;
-    this.undoStack.push(JSON.stringify(this.design));
-    this.design = JSON.parse(next);
+    this.undoStack.push(this.snapshot());
+    this.design = this.restore(next);
     this.afterHistory();
+  }
+
+  /** History entries leave out the texture (it can be megabytes); it stays as it is. */
+  private snapshot(d = this.design): string {
+    const { texture: _texture, ...rest } = d;
+    return JSON.stringify(rest);
+  }
+
+  private restore(json: string): AdvancedDesign {
+    const d = JSON.parse(json) as AdvancedDesign;
+    if (this.design.texture) d.texture = this.design.texture;
+    return d;
   }
 
   get canUndo() {
@@ -227,7 +239,7 @@ export class Editor {
     const before = clone(this.design);
     const id = mirrorCopy(this.design, this.selected);
     if (!id) return false;
-    this.undoStack.push(JSON.stringify(before));
+    this.undoStack.push(this.snapshot(before));
     this.redoStack = [];
     this.selected = id;
     this.changed();
