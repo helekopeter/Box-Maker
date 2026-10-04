@@ -346,6 +346,15 @@ export function uid(): string {
   return Math.random().toString(36).slice(2, 9);
 }
 
+/**
+ * Walls (and the base) are structural: other panels can hang off them. Flaps and glue tabs
+ * are end pieces and carry nothing.
+ */
+export function canCarry(d: AdvancedDesign, id: string): boolean {
+  if (id === BASE_ID) return true;
+  return d.panels.find((p) => p.id === id)?.kind === 'wall';
+}
+
 /** Edges of a panel that already have something attached (the hinge counts too). */
 export function usedEdges(d: AdvancedDesign, id: string): Set<number> {
   const used = new Set<number>(d.panels.filter((p) => p.parent === id).map((p) => p.edge));
@@ -356,7 +365,7 @@ export function usedEdges(d: AdvancedDesign, id: string): Set<number> {
 /** A sensible new panel on edge `edge` of `parentId`. */
 export function makeChild(d: AdvancedDesign, parentId: string, edge: number): CustomPanel | null {
   const parent = layout(d).get(parentId);
-  if (!parent) return null;
+  if (!parent || !canCarry(d, parentId)) return null;
   const [a, b] = edgeOf(parent.poly, edge);
   const edgeLen = len(sub(b, a));
   const onBase = parentId === BASE_ID;
@@ -532,5 +541,7 @@ export function sanitizeDesign(raw: unknown): AdvancedDesign | null {
       holes: holes(p.holes),
     });
   }
+  // Only walls carry other panels (older files may have panels hanging off flaps).
+  for (const p of design.panels) if (p.kind !== 'wall' && design.panels.some((c) => c.parent === p.id)) p.kind = 'wall';
   return design;
 }

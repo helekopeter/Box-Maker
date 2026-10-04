@@ -25,7 +25,7 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
 
 Draw a box from scratch. You start with a single square (the base, which lies on the table).
 
-- **Add panels:** click **+** on any free edge to add a wall (off the base) or a flap (off anything else).
+- **Add panels:** click **+** on any free edge of the base or a wall to add a wall (off the base) or a flap (off a wall). Walls are structural and can carry more panels; flaps and glue tabs are end pieces, so they have no **+**.
 - **Edit a panel:** select it to set its depth, how much it narrows at each end (symmetric by default; hold Shift while dragging a corner handle to move one side), its inset along the edge, and its type (wall, flap or glue tab). You can also drag its orange handles.
 - **Fold angle:** positive folds inwards, negative outwards; there are quick presets for 90° in, 90° out, flat and 180° over. **Fold order** sets what folds first, and **layer** decides which panel ends up on top where panels overlap once folded (it's ignored for panels that don't lie against anything).
 - **Pen tool (P):** click a free edge, click some points, then click the same edge again to make a free-form flap.

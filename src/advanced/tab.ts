@@ -304,6 +304,7 @@ export class AdvancedTab {
     host.append(el('h2', { textContent: KIND_LABEL[p.kind] }));
 
     const kinds = el('div', { className: 'seg wide' });
+    const carrying = this.design.panels.some((x) => x.parent === p.id);
     for (const k of ['wall', 'flap', 'glue'] as CustomKind[]) {
       const b = button(KIND_LABEL[k], () => {
         edit('kind', () => {
@@ -314,9 +315,15 @@ export class AdvancedTab {
         });
         this.renderInspector();
       }, k === p.kind ? 'on' : '');
+      // Only walls can carry other panels, so a wall with panels on it stays a wall.
+      if (k !== 'wall' && carrying) {
+        b.disabled = true;
+        b.title = 'Remove the panels attached to this wall first: flaps and glue tabs can’t carry other panels.';
+      }
       kinds.append(b);
     }
     host.append(kinds);
+    if (carrying && p.kind === 'wall') host.append(el('p', { className: 'hint', textContent: 'Has panels attached, so it stays a wall.' }));
 
     if (p.shape.type === 'rect') {
       const s = p.shape;

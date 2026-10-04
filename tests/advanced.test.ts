@@ -167,3 +167,31 @@ describe('layers', () => {
     for (const t of tabs) expect(t.offset).toBe(-1);
   });
 });
+
+describe('walls vs flaps', () => {
+  it('only lets walls and the base carry other panels', () => {
+    const d = tray();
+    const wall = d.panels[0];
+    const flap = makeChild(d, wall.id, 2)!;
+    expect(flap.kind).toBe('flap');
+    d.panels.push(flap);
+    expect(makeChild(d, flap.id, 1)).toBeNull();
+    const glue = makeChild(d, wall.id, 1)!;
+    glue.kind = 'glue';
+    d.panels.push(glue);
+    expect(makeChild(d, glue.id, 2)).toBeNull();
+    expect(makeChild(d, wall.id, 3)).not.toBeNull();
+  });
+
+  it('turns flaps that carry panels into walls when loading or converting', async () => {
+    const d = tray();
+    const flap = makeChild(d, d.panels[0].id, 2)!;
+    d.panels.push(flap);
+    d.panels.push({ ...makeChild(d, d.panels[1].id, 2)!, parent: flap.id, edge: 1 });
+    expect(sanitizeDesign(clone(d))!.panels.find((p) => p.id === flap.id)!.kind).toBe('wall');
+    const { generateDieline } = await import('../src/geometry/styles');
+    const { fromDieline } = await import('../src/advanced/convert');
+    const { design } = fromDieline(generateDieline({ style: 'autolock', length: 100, width: 80, height: 60, thickness: 2, glueTab: 15, lidHeight: 30, lidClearance: 1 }), { name: 'a', thickness: 2, color: '#c9a46b' });
+    for (const p of design.panels) if (design.panels.some((c) => c.parent === p.id)) expect(p.kind).toBe('wall');
+  });
+});

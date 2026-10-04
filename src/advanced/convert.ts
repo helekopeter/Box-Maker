@@ -124,6 +124,8 @@ export function fromDieline(
     else design.panels.find((p) => p.id === id)!.face = spec;
     faceIds.set(f.id, id);
   }
+  // Only walls carry other panels in Advanced designs.
+  for (const p of design.panels) if (p.kind !== 'wall' && design.panels.some((c) => c.parent === p.id)) p.kind = 'wall';
   return { design, skipped, droppedPieces: dl.pieces.length - 1, faceIds };
 }
 

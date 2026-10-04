@@ -2,7 +2,7 @@ import { computeLines } from '../geometry/lines';
 import type { Dieline, Vec2 } from '../types';
 import {
   BASE_ID, deleteVertex, edgeOf, editablePoints, insertVertex, layout, makeChild, moveVertex,
-  overlaps, rawPanels, toLocal, usedEdges, type AdvancedDesign, type Placed,
+  canCarry, overlaps, rawPanels, toLocal, usedEdges, type AdvancedDesign, type Placed,
 } from './model';
 
 export type Tool = 'select' | 'pen' | 'cut';
@@ -269,6 +269,8 @@ export class Editor {
     const tol = 8 / this.view.scale;
     let best: { panel: string; edge: number; at: Vec2; d: number } | null = null;
     for (const pl of this.placed.values()) {
+      // Free edges are where something new can go, so only on walls and the base.
+      if (freeOnly && !canCarry(this.design, pl.id)) continue;
       const used = freeOnly ? usedEdges(this.design, pl.id) : new Set<number>();
       for (let k = 0; k < pl.poly.length; k++) {
         if (used.has(k)) continue;
@@ -573,10 +575,10 @@ export class Editor {
 
   private hint() {
     const hints: Record<Tool, string> = {
-      select: 'Click + on an edge to add a wall or flap · drag orange handles to resize (Shift: one side) · double-click an edge to add a corner · scroll to zoom, drag empty space to pan · Ctrl+Z undo',
+      select: '+ adds a wall or flap (only walls carry panels) · Shift-drag: one side · double-click edge: add corner · Ctrl+Z: undo',
       pen: this.pen
         ? 'Click to add points. Click the starting edge again to finish (Backspace undoes a point, Esc cancels).'
-        : 'Click a free edge to start drawing a flap from it.',
+        : 'Click a free edge of a wall (or the base) to start drawing a flap from it.',
       cut: this.cut
         ? 'Click to add points. Click the first point or press Enter to finish the cut-out.'
         : 'Click inside a panel to start a cut-out.',
@@ -652,6 +654,7 @@ export class Editor {
   private addButtons(px: (v: number) => number): string[] {
     const out: string[] = [];
     for (const pl of this.placed.values()) {
+      if (!canCarry(this.design, pl.id)) continue;
       const used = usedEdges(this.design, pl.id);
       for (let k = 0; k < pl.poly.length; k++) {
         if (used.has(k)) continue;
