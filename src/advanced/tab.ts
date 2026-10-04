@@ -1,10 +1,10 @@
 import { renderArtwork } from '../artwork';
 import { bedWarning, bindBedInputs, fitsBed, onBedChange } from '../bed';
 import { DecalLayer } from '../decals';
-import { buildSvg } from '../export/svg';
+import { bindCopies, copiesIds, downloadBox } from '../export/download';
 import { BoxPreview } from '../preview3d';
 import type { Decal, Dieline, ExportOptions, FoldMode, Vec2 } from '../types';
-import { $, buildSwatches, download, el, syncSwatches, toast } from '../ui';
+import { $, buildSwatches, el, syncSwatches, toast } from '../ui';
 import { Editor, type Tool } from './editor';
 import {
   addTabJoints, BASE_ID, clone, layout, makeCustom, newDesign, overlaps, sanitizeDesign, toDieline, type AdvancedDesign,
@@ -57,6 +57,7 @@ export class AdvancedTab {
   private framedSize = 0;
   /** Narrow start/end move together. */
   private linkTaper = true;
+  private refreshCopies = () => {};
 
   constructor() {
     const saved = loadSaved();
@@ -124,6 +125,7 @@ export class AdvancedTab {
     this.decals.validate();
     this.renderArt();
     this.renderStats();
+    this.refreshCopies();
     this.syncLook();
   }
 
@@ -203,6 +205,9 @@ export class AdvancedTab {
     $<HTMLInputElement>('#adv-includeArtwork').addEventListener('change', (e) => (this.exp.includeArtwork = (e.target as HTMLInputElement).checked));
     bindBedInputs($<HTMLInputElement>('#adv-bedW'), $<HTMLInputElement>('#adv-bedH'));
     onBedChange(() => this.renderStats());
+    const { input, hint } = copiesIds('adv-');
+    this.refreshCopies = bindCopies(input, hint, this.exp, () => this.dieline, () => this.save());
+    onBedChange(() => this.refreshCopies());
     $('#adv-dl-svg').addEventListener('click', () => this.downloadSvg());
     $('#adv-dl-pdf').addEventListener('click', () => this.downloadPdf());
 
@@ -502,14 +507,11 @@ export class AdvancedTab {
   }
 
   downloadSvg() {
-    const svg = buildSvg(this.dieline, { color: this.design.color, decals: this.design.decals ?? [] }, this.exp);
-    download(new Blob([svg], { type: 'image/svg+xml' }), `${this.baseName()}.svg`);
+    return downloadBox('svg', this.dieline, { color: this.design.color, decals: this.design.decals ?? [] }, this.exp, this.baseName());
   }
 
-  async downloadPdf() {
-    const { buildPdf } = await import('../export/pdf');
-    const blob = await buildPdf(this.dieline, { color: this.design.color, decals: this.design.decals ?? [] }, this.exp);
-    download(blob, `${this.baseName()}.pdf`);
+  downloadPdf() {
+    return downloadBox('pdf', this.dieline, { color: this.design.color, decals: this.design.decals ?? [] }, this.exp, this.baseName());
   }
 
   share(): AdvancedShare {

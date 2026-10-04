@@ -130,4 +130,6 @@ export interface ExportOptions {
   foldMode: FoldMode;
   includeArtwork: boolean;
   includeGlue: boolean;
+  /** How many of the box to cut; more than one are packed onto laser-bed-sized sheets. */
+  copies?: number;
 }

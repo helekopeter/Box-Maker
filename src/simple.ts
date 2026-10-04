@@ -1,5 +1,6 @@
 import { KRAFT, renderArtwork } from './artwork';
 import { DecalLayer, sanitizeDecals } from './decals';
+import { bindCopies, copiesIds, downloadBox } from './export/download';
 import { buildSvg } from './export/svg';
 import { generateDieline, STYLE_INFO } from './geometry/styles';
 import { BoxPreview } from './preview3d';
@@ -8,7 +9,7 @@ import { ShapeControls } from './shape/controls';
 import { newShape, sanitizeShape, toDesign, type NetResult, type ShapeSpec } from './shape/model';
 import type { Appearance, BoxParams, BoxStyle, Decal, Dieline, ExportOptions, FoldMode } from './types';
 import { bedWarning, bindBedInputs, fitsBed, onBedChange } from './bed';
-import { $, buildSwatches, download, el, num, syncSwatches } from './ui';
+import { $, buildSwatches, el, num, syncSwatches } from './ui';
 
 /**
  * The Simple tab: pick a ready-made box style (or build a shape), set its size, colour
@@ -130,6 +131,7 @@ export class SimpleTab {
   /** The unfolded net when the style is Shape Builder. */
   shapeResult: NetResult | null = null;
   private shapeControls: ShapeControls;
+  private refreshCopies = () => {};
 
   constructor() {
     this.dieline = dielineFor(this.state.params, this.state.shape, this.state.look.color);
@@ -193,6 +195,7 @@ export class SimpleTab {
     }
     this.decals.validate();
     this.renderStats();
+    this.refreshCopies();
     this.renderDieline2D();
     this.renderArt();
     const sliding = p.style === 'sleeve' || p.style === 'matchbox';
@@ -388,6 +391,9 @@ export class SimpleTab {
       this.state.exp.includeArtwork = (e.target as HTMLInputElement).checked;
       this.save();
     });
+    const { input, hint } = copiesIds('');
+    this.refreshCopies = bindCopies(input, hint, this.state.exp, () => this.dieline, () => this.save());
+    onBedChange(() => this.refreshCopies());
     $('#dl-svg-2').addEventListener('click', () => this.downloadSvg());
     $('#dl-pdf-2').addEventListener('click', () => this.downloadPdf());
 
@@ -459,15 +465,11 @@ export class SimpleTab {
   }
 
   downloadSvg() {
-    const svg = buildSvg(this.dieline, this.state.look, this.state.exp);
-    download(new Blob([svg], { type: 'image/svg+xml' }), `${this.baseName()}.svg`);
+    return downloadBox('svg', this.dieline, this.state.look, this.state.exp, this.baseName());
   }
 
-  async downloadPdf() {
-    // jsPDF is large, so load it only when someone actually exports a PDF.
-    const { buildPdf } = await import('./export/pdf');
-    const blob = await buildPdf(this.dieline, this.state.look, this.state.exp);
-    download(blob, `${this.baseName()}.pdf`);
+  downloadPdf() {
+    return downloadBox('pdf', this.dieline, this.state.look, this.state.exp, this.baseName());
   }
 
   share(): SimpleShare {

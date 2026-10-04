@@ -126,6 +126,8 @@
           <label class="row">Laser bed (mm)
             <span class="pair"><input type="number" id="bedW" min="50" step="10" aria-label="Bed width" /> × <input type="number" id="bedH" min="50" step="10" aria-label="Bed height" /></span>
           </label>
+          <label class="row">Copies<input type="number" id="copies" min="1" max="500" step="1" /></label>
+          <p class="hint" id="copies-hint" hidden></p>
           <div class="export-btns">
             <button class="btn" id="dl-svg-2">SVG</button>
             <button class="btn primary" id="dl-pdf-2">PDF</button>
@@ -202,6 +204,8 @@
           <label class="row">Laser bed (mm)
             <span class="pair"><input type="number" id="adv-bedW" min="50" step="10" aria-label="Bed width" /> × <input type="number" id="adv-bedH" min="50" step="10" aria-label="Bed height" /></span>
           </label>
+          <label class="row">Copies<input type="number" id="adv-copies" min="1" max="500" step="1" /></label>
+          <p class="hint" id="adv-copies-hint" hidden></p>
           <div class="export-btns">
             <button class="btn" id="adv-dl-svg">SVG</button>
             <button class="btn primary" id="adv-dl-pdf">PDF</button>

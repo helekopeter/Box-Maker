@@ -22,15 +22,25 @@ function drawSegments(doc: jsPDF, segs: Segment[]) {
 
 /** Builds a PDF whose page is exactly the sheet size, in millimetres. */
 export async function buildPdf(d: Dieline, look: Appearance, opts: ExportOptions): Promise<Blob> {
+  return buildPdfPages([{ dieline: d, look }], opts);
+}
+
+/** One page per sheet (e.g. several copies spread over laser-bed-sized sheets). */
+export async function buildPdfPages(sheets: { dieline: Dieline; look: Appearance }[], opts: ExportOptions): Promise<Blob> {
+  const first = sheets[0].dieline;
+  const orientation = (d: Dieline) => (d.width > d.height ? 'landscape' : 'portrait');
+  const doc = new jsPDF({ unit: 'mm', format: [first.width, first.height], orientation: orientation(first), compress: true });
+  doc.setProperties({ title: `Box dieline ${Math.round(first.width)} × ${Math.round(first.height)} mm`, creator: 'Box Maker' });
+  for (const [i, { dieline, look }] of sheets.entries()) {
+    if (i) doc.addPage([dieline.width, dieline.height], orientation(dieline));
+    await drawPage(doc, dieline, look, opts);
+  }
+  return doc.output('blob');
+}
+
+async function drawPage(doc: jsPDF, d: Dieline, look: Appearance, opts: ExportOptions) {
   const W = d.width;
   const H = d.height;
-  const doc = new jsPDF({
-    unit: 'mm',
-    format: [W, H],
-    orientation: W > H ? 'landscape' : 'portrait',
-    compress: true,
-  });
-  doc.setProperties({ title: `Box dieline ${Math.round(W)} × ${Math.round(H)} mm`, creator: 'Box Maker' });
 
   if (opts.includeArtwork) {
     // Rasterise artwork at ~300 dpi, capped to keep files reasonable.
@@ -82,6 +92,4 @@ export async function buildPdf(d: Dieline, look: Appearance, opts: ExportOptions
     const closed = c.length > 2 && Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-3;
     drawPoly(doc, closed ? c.slice(0, -1) : c, 'S', closed);
   }
-
-  return doc.output('blob');
 }
