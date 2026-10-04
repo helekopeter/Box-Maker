@@ -5,6 +5,7 @@ import { generateDieline } from '../src/geometry/styles';
 import type { BoxParams, BoxStyle, Dieline, Vec2 } from '../src/types';
 import { overlaps, toDieline } from '../src/advanced/model';
 import { EXAMPLES } from '../src/universe/examples';
+import { newShape, toDesign, type ShapeSpec } from '../src/shape/model';
 
 const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve'];
 
@@ -107,4 +108,20 @@ describe('Box Universe examples', () => {
       expect(crossings.map((c) => `${c.moving} through ${c.through}`)).toEqual([]);
     },
   );
+});
+
+describe('Shape Maker nets', () => {
+  const shapes: [string, Partial<ShapeSpec>][] = [
+    ['hexagon box', { shape: 'hexagon', levels: [{ height: 80, scale: 100 }] }],
+    ['house', { shape: 'rect', width: 80, depth: 80, levels: [{ height: 60, scale: 100 }, { height: 40, scale: 0 }] }],
+    ['pentagon frustum', { shape: 'pentagon', levels: [{ height: 60, scale: 60 }] }],
+    ['open octagon bowl', { shape: 'octagon', top: 'open', levels: [{ height: 40, scale: 140 }] }],
+  ];
+  it.each(shapes)('%s folds without passing through itself', (_n, over) => {
+    const s = { ...newShape(), ...over } as ShapeSpec;
+    const dl = toDieline(toDesign(s).design);
+    const crossings = findCrossings(dl, s.thickness);
+    const unique = [...new Set(crossings.map((c) => `${c.moving} through ${c.through}`))];
+    expect(unique).toEqual([]);
+  });
 });
