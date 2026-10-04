@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BASE_ID, clone, copySubtree, deleteVertex, flipPanel, freeSpans, mirrorCopy, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
-  removePanel, sanitizeDesign, setEdgeLength, toDieline, type AdvancedDesign,
+  addTabJoints, BASE_ID, clone, copySubtree, deleteVertex, flipPanel, freeSpans, mirrorCopy, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
+  rawPanels, removePanel, sanitizeDesign, setEdgeLength, toDieline, type AdvancedDesign,
 } from '../src/advanced/model';
-import { foldedBounds } from '../src/geometry/fold';
+import { Vector3 } from 'three';
+import { foldedBounds, localMatrices } from '../src/geometry/fold';
+import { pointInPoly } from '../src/geometry/surface';
+import type { Dieline } from '../src/types';
 import { chainSegments, computeLines } from '../src/geometry/lines';
 
 import chair from './fixtures/chair.json';
@@ -280,5 +283,44 @@ describe('walls vs flaps', () => {
     expect(setEdgeLength(d, wall.id, 2, 50)).toBe(true);
     expect(len(wall.id, 2)).toBeCloseTo(50, 6);
     expect(setEdgeLength(d, wall.id, 0, 60)).toBe(true);
+  });
+
+  it('adds tabs where an edge stands on another panel, with matching slots', () => {
+    // A wall, a shelf folding in from its top, and a divider folding down from the shelf's
+    // far edge onto the middle of the base.
+    const d = newDesign();
+    const wall = makeChild(d, BASE_ID, 0)!;
+    wall.shape = { type: 'rect', depth: 50, taper0: 0, taper1: 0 };
+    d.panels.push(wall);
+    const shelf = { ...makeChild(d, wall.id, 2)!, kind: 'wall' as const, shape: { type: 'rect' as const, depth: 50, taper0: 0, taper1: 0 } };
+    d.panels.push(shelf);
+    const divider = { ...makeChild(d, shelf.id, 2)!, kind: 'wall' as const, shape: { type: 'rect' as const, depth: 50, taper0: 0, taper1: 0 } };
+    d.panels.push(divider);
+    expect(addTabJoints(d, divider.id)).toBe(2);
+    expect(d.base.holes.length).toBe(2);
+    // Each tab sticks out of the divider's free edge and, folded, passes through its slot.
+    const dl = toDieline(d);
+    const { cuts } = computeLines(dl);
+    expect(chainSegments(cuts).length).toBe(3); // outline + two slots
+    const poly = layout(d).get(divider.id)!.poly;
+    expect(poly.length).toBe(4 + 8);
+    // The slots sit half way across the base (where the divider stands), 100 mm wide edge.
+    for (const h of d.base.holes) {
+      const ys = h.map((q) => q[1]);
+      expect(Math.min(...ys)).toBeGreaterThan(44);
+      expect(Math.max(...ys)).toBeLessThan(56);
+    }
+    // Folded, the corners of each tab's tip (the divider's outermost points) lie in a slot.
+    const mats = localMatrices({ panels: rawPanels(d).map((p) => ({ ...p, offset: 0 })) } as Dieline, 1);
+    const inv = mats.get(BASE_ID)!.clone().invert();
+    const top = Math.min(...poly.map((q) => q[1]));
+    const tips = poly.filter((q) => Math.abs(q[1] - top) < 1e-6);
+    expect(tips.length).toBe(4);
+    for (const q of tips) {
+      const v = new Vector3(q[0], -q[1], 0).applyMatrix4(mats.get(divider.id)!).applyMatrix4(inv);
+      expect(d.base.holes.some((h) => pointInPoly([v.x + 0.01, -v.y], h) || pointInPoly([v.x - 0.01, -v.y], h))).toBe(true);
+    }
+    // Nothing to join on a panel that doesn't stand on anything.
+    expect(addTabJoints(d, wall.id)).toBe(0);
   });
 });

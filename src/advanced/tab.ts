@@ -7,7 +7,7 @@ import type { Decal, Dieline, ExportOptions, FoldMode, Vec2 } from '../types';
 import { $, buildSwatches, download, el, syncSwatches, toast } from '../ui';
 import { Editor, type Tool } from './editor';
 import {
-  BASE_ID, clone, layout, makeCustom, newDesign, overlaps, sanitizeDesign, toDieline, type AdvancedDesign,
+  addTabJoints, BASE_ID, clone, layout, makeCustom, newDesign, overlaps, sanitizeDesign, toDieline, type AdvancedDesign,
   type CustomKind, type CustomPanel,
 } from './model';
 
@@ -409,6 +409,24 @@ export class AdvancedTab {
     flip.title = 'Mirror this panel (and everything on it) left to right where it is';
     copies.append(dup, mirror, flip);
     host.append(copies);
+
+    const joints = el('div', { className: 'btn-row' });
+    const tabs = button('Add tab & slot joints', () => {
+      const trial = clone(this.design);
+      const n = addTabJoints(trial, p.id);
+      if (!n) {
+        toast('None of this panel’s free edges rest on another panel when folded. Fold it so an edge stands on a wall or the base first.');
+        return;
+      }
+      this.editor.checkpoint();
+      Object.assign(this.design, trial);
+      this.editor.changed();
+      this.renderInspector();
+      toast(`Added ${n} tab${n === 1 ? '' : 's'} and matching slot${n === 1 ? '' : 's'}.`);
+    });
+    tabs.title = 'Where an edge of this panel stands on another panel once folded, add tabs that push through slots in it (no glue needed)';
+    joints.append(tabs);
+    host.append(joints);
 
     const actions = el('div', { className: 'btn-row' });
     if (p.shape.type === 'rect') actions.append(button('Free-form shape', () => edit('shape', () => makeCustom(this.design, p.id))));

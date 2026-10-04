@@ -1,5 +1,5 @@
 import { sanitizeDecals } from '../decals';
-import { Vector3 } from 'three';
+import { Matrix4, Vector3 } from 'three';
 import { foldedBounds, localMatrices } from '../geometry/fold';
 import { finish } from '../geometry/styles';
 import { pointInPoly } from '../geometry/surface';
@@ -621,6 +621,118 @@ export function setEdgeLength(d: AdvancedDesign, id: string, k: number, length: 
   if (l < 1e-6) return false;
   moveVertex(d, id, move, add(pts[keep], mul(dir, length / l)));
   return true;
+}
+
+/**
+ * Tab-and-slot joints: wherever an edge of the panel ends up resting against another
+ * panel once folded (standing on it at an angle, like a divider on a base), tabs are added
+ * along that edge and matching slots are cut where they land, so the joint holds without
+ * glue. Returns how many tabs were added (0: no edge meets another panel).
+ */
+export function addTabJoints(d: AdvancedDesign, id: string): number {
+  const placed = layout(d);
+  const F = placed.get(id);
+  if (!F) return 0;
+  const t = d.thickness;
+  const panels = rawPanels(d).map((p) => ({ ...p, offset: 0 }));
+  const mats = localMatrices({ panels } as Dieline, 1);
+  const fm = mats.get(id)!;
+  const tol = Math.max(1.5 * t, 1);
+  const used = new Set(d.panels.filter((p) => p.parent === id).map((p) => p.edge));
+  const plans: { k: number; tabs: [number, number][]; W: Placed; winv: Matrix4 }[] = [];
+
+  for (let k = 0; k < F.poly.length; k++) {
+    if ((id !== BASE_ID && k === 0) || used.has(k)) continue;
+    const [A, B] = edgeOf(F.poly, k);
+    const L = len(sub(B, A));
+    if (L < 8) continue;
+    const e = mul(sub(B, A), 1 / L);
+    const inward = mul(outwardNormal(F.poly, k), -1);
+    let best: { run: [number, number]; W: Placed; winv: Matrix4 } | null = null;
+    for (const W of placed.values()) {
+      if (W.id === id) continue;
+      const winv = mats.get(W.id)!.clone().invert();
+      const toW = (q: Vec2) => {
+        const v = new Vector3(q[0], -q[1], 0).applyMatrix4(fm).applyMatrix4(winv);
+        return { p: [v.x, -v.y] as Vec2, z: v.z };
+      };
+      // The panel has to stand on W at an angle, not lie flat against it.
+      const mid = add(A, mul(sub(B, A), 0.5));
+      if (Math.abs(toW(add(mid, mul(inward, Math.min(8, L / 2)))).z) < 3) continue;
+      // The longest stretch of the edge lying on W, clear of W's own edges and holes.
+      const N = 48;
+      let run: [number, number] | null = null;
+      let from = -1;
+      for (let i = 0; i <= N + 1; i++) {
+        let on = false;
+        if (i <= N) {
+          const q = toW(add(A, mul(e, (L * i) / N)));
+          on = Math.abs(q.z) <= tol && pointInPoly(q.p, W.poly) && distToPoly(q.p, W.poly) > t + 1 && !W.holes.some((h) => pointInPoly(q.p, h));
+        }
+        if (on && from < 0) from = i;
+        if (!on && from >= 0) {
+          const r: [number, number] = [(L * from) / N, (L * (i - 1)) / N];
+          if (!run || r[1] - r[0] > run[1] - run[0]) run = r;
+          from = -1;
+        }
+      }
+      if (run && run[1] - run[0] >= 8 && (!best || run[1] - run[0] > best.run[1] - best.run[0])) best = { run, W, winv };
+    }
+    if (!best) continue;
+    // One tab, or two on long edges, kept clear of the ends.
+    const margin = Math.min(3, (best.run[1] - best.run[0]) / 6);
+    const r0 = best.run[0] + margin;
+    const R = best.run[1] - margin - r0;
+    const n = R >= 70 ? 2 : 1;
+    const w = Math.min(30, Math.max(4, R * (n === 1 ? 0.4 : 0.22)));
+    const centres = n === 1 ? [r0 + R / 2] : [r0 + R * 0.25, r0 + R * 0.75];
+    plans.push({ k, tabs: centres.map((c) => [c - w / 2, c + w / 2]), W: best.W, winv: best.winv });
+  }
+
+  // Slots first (they need the edges where they are now), then the tabs, last edge first
+  // so inserting corners doesn't shift the edges still to do.
+  const c = 0.2; // clearance around the tab
+  const tabLen = Math.max(2 * t, 2);
+  for (const plan of plans) {
+    const [A, B] = edgeOf(F.poly, plan.k);
+    const e = mul(sub(B, A), 1 / len(sub(B, A)));
+    const toW = (q: Vec2): Vec2 => {
+      const v = new Vector3(q[0], -q[1], 0).applyMatrix4(fm).applyMatrix4(plan.winv);
+      return [v.x, -v.y];
+    };
+    // Which way the board's thickness runs across the slot (panels extrude inwards, -z).
+    const dir = new Vector3(0, 0, -1).transformDirection(fm).transformDirection(plan.winv);
+    const across: Vec2 = [dir.x, -dir.y];
+    const al = len(across);
+    for (const [s0, s1] of plan.tabs) {
+      const R0 = toW(add(A, mul(e, s0)));
+      const R1 = toW(add(A, mul(e, s1)));
+      const ew = mul(sub(R1, R0), 1 / (len(sub(R1, R0)) || 1));
+      const [q, lo, hi]: [Vec2, number, number] = al > 0.3 ? [mul(across, 1 / al), -c, t + c] : [[-ew[1], ew[0]], -(t / 2 + c), t / 2 + c];
+      const a = sub(R0, mul(ew, c));
+      const b = add(R1, mul(ew, c));
+      const slot = [add(a, mul(q, lo)), add(b, mul(q, lo)), add(b, mul(q, hi)), add(a, mul(q, hi))];
+      const W = plan.W;
+      if (W.id === BASE_ID) d.base.holes.push(slot);
+      else d.panels.find((p) => p.id === W.id)!.holes.push(slot.map((p) => toLocal(W, p)));
+    }
+  }
+  let added = 0;
+  for (const plan of [...plans].sort((x, y) => y.k - x.k)) {
+    const pts = editablePoints(d, id)!;
+    const [A, B] = edgeOf(pts, plan.k);
+    const e = mul(sub(B, A), 1 / len(sub(B, A)));
+    const out = outwardNormal(pts, plan.k);
+    plan.tabs.forEach(([s0, s1], i) => {
+      const base = plan.k + 4 * i;
+      const p0 = add(A, mul(e, s0));
+      const p1 = add(A, mul(e, s1));
+      const corners = [p0, add(p0, mul(out, tabLen)), add(p1, mul(out, tabLen)), p1];
+      corners.forEach((q, j) => insertVertex(d, id, base + j, q));
+      added++;
+    });
+  }
+  return added;
 }
 
 /** Deep copy (designs are plain JSON). */
