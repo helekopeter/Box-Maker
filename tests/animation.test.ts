@@ -7,7 +7,7 @@ import { overlaps, toDieline } from '../src/advanced/model';
 import { EXAMPLES } from '../src/universe/examples';
 import { newShape, toDesign, type ShapeSpec } from '../src/shape/model';
 
-const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve'];
+const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve', 'mailer', 'matchbox', 'hexagon'];
 
 function pointInPoly([x, y]: Vec2, poly: Vec2[]): boolean {
   let inside = false;

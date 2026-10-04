@@ -14,8 +14,8 @@ const base: BoxParams = {
   lidHeight: 30,
   lidClearance: 1,
 };
-const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve'];
-const twoPiece = (s: BoxStyle) => s === 'traylid' || s === 'sleeve';
+const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve', 'mailer', 'matchbox', 'hexagon'];
+const twoPiece = (s: BoxStyle) => s === 'traylid' || s === 'sleeve' || s === 'matchbox';
 
 describe.each(styles)('%s', (style) => {
   const p = { ...base, style };
@@ -44,7 +44,8 @@ describe.each(styles)('%s', (style) => {
     const t = p.thickness;
     const box = foldedBounds(d, 1, { thickness: t }, 0);
     // For two-piece boxes piece 0 is the tray; the lid or sleeve is checked separately.
-    const [L, W, H] = twoPiece(style) ? [p.length + 2 * t, p.width + 2 * t, p.height + t] : d.outer;
+    // (The matchbox drawer's side walls are double: wall, ear and inner panel.)
+    const [L, W, H] = twoPiece(style) ? [p.length + (style === 'matchbox' ? 6 : 2) * t, p.width + 2 * t, p.height + t] : d.outer;
     const size = box.max.clone().sub(box.min);
     const tol = 3 * t;
     expect(size.x).toBeGreaterThan(p.length);
@@ -52,7 +53,7 @@ describe.each(styles)('%s', (style) => {
     expect(Math.abs(size.z - W)).toBeLessThan(tol);
     expect(Math.abs(size.y - H)).toBeLessThan(tol);
     // Sits on the ground (or on the sleeve's bottom panel), centred.
-    expect(box.min.y).toBeCloseTo(style === 'sleeve' ? t : 0, 3);
+    expect(box.min.y).toBeCloseTo(style === 'sleeve' || style === 'matchbox' ? t : 0, 3);
     expect(Math.abs(box.min.x + box.max.x)).toBeLessThan(1e-6);
   });
 
@@ -100,6 +101,29 @@ describe('sleeve', () => {
     expect(sl.max.z).toBeGreaterThan(tray.max.z);
     expect(sl.min.y).toBeCloseTo(0, 3);
     expect(sl.max.y).toBeGreaterThan(tray.max.y);
+  });
+});
+
+describe('matchbox', () => {
+  it('has a drawer that fits inside the sleeve, and thumb notches', () => {
+    const d = generateDieline({ ...base, style: 'matchbox' });
+    const drawer = foldedBounds(d, 1, { thickness: 3 }, 0);
+    const sl = foldedBounds(d, 1, { thickness: 3 }, 1);
+    expect(sl.min.z).toBeLessThan(drawer.min.z);
+    expect(sl.max.z).toBeGreaterThan(drawer.max.z);
+    expect(sl.max.y).toBeGreaterThan(drawer.max.y);
+    expect(d.panels.find((x) => x.id === 'sleeve-top')!.poly.length).toBeGreaterThan(4);
+  });
+});
+
+describe('hexagon', () => {
+  it('has six equal sides and a hexagonal lid', () => {
+    const d = generateDieline({ ...base, style: 'hexagon' });
+    const box = foldedBounds(d, 1, { thickness: 3 });
+    const size = box.max.clone().sub(box.min);
+    // Across the corners is 2/√3 times across the flats.
+    expect(size.x / size.z).toBeCloseTo(2 / Math.sqrt(3), 1);
+    expect(d.panels.find((x) => x.id === 'top')!.poly.length).toBe(6);
   });
 });
 

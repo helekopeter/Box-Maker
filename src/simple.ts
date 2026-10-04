@@ -107,6 +107,9 @@ export const STYLE_ICONS: Record<BoxStyle, string> = {
   traylid: '<path d="M8 38 32 30l24 8v8L32 56 8 46z"/><path d="M8 38l24 8 24-8M32 46v10" class="l"/><path d="M6 18 32 8l26 10v6L32 34 6 24z"/><path d="M6 18l26 10 26-10M32 28v6" class="l"/>',
   // A hexagonal tower with a pointed roof: a shape built from extruded levels.
   shape: '<path d="M14 30l10-5h16l10 5v20l-10 5H24l-10-5z"/><path d="M14 30l10 5h16l10-5M24 35v20M40 35v20" class="l"/><path d="M14 30 32 6l18 24" /><path d="M24 25 32 6l8 19M24 35 32 6l8 29" class="l"/>',
+  mailer: '<path d="M6 40 30 32l28 8v8L34 58 6 50z"/><path d="M6 40l28 10 24-10M34 50v8" class="l"/><path d="M6 40 30 32l4-24L10 16z"/><path d="M10 16l24-8 1-5-24 8z" class="l"/>',
+  matchbox: '<path d="M4 34 26 26l34 10v10L38 54 4 44z"/><path d="M4 34l34 10 22-8M38 44v10" class="l"/><path d="M16 22l22-8 12 4v14L28 40 16 36z"/><path d="M16 22l12 4 22-8M28 26v14" class="l"/><path d="M24 23.5a5 3 0 0 0 9 2" class="l"/>',
+  hexagon: '<path d="M14 18l9-6h18l9 6-9 6H23zM14 18v26l9 6h18l9-6V18"/><path d="M23 24v26M41 24v26M14 18l9 6h18l9-6" class="l"/>',
   sleeve: '<path d="M4 34 26 26l34 10v10L38 54 4 44z"/><path d="M4 34l34 10 22-8M38 44v10" class="l"/><path d="M16 22l22-8 12 4v14L28 40 16 36z"/><path d="M16 22l12 4 22-8M28 26v14" class="l"/>',
 };
 
@@ -192,11 +195,17 @@ export class SimpleTab {
     this.renderStats();
     this.renderDieline2D();
     this.renderArt();
-    const twoPiece = p.style === 'traylid' || p.style === 'sleeve';
+    const sliding = p.style === 'sleeve' || p.style === 'matchbox';
+    const twoPiece = p.style === 'traylid' || sliding;
     $('#lid-opts').hidden = !twoPiece;
     $('#lid-height-row').hidden = p.style !== 'traylid';
     $('#lift-wrap').hidden = !twoPiece;
-    $('#lift-label').textContent = p.style === 'sleeve' ? 'Slide' : 'Lid';
+    $('#lift-label').textContent = sliding ? 'Slide' : 'Lid';
+    // A hexagon has one width: across its flat sides.
+    const hex = p.style === 'hexagon';
+    $('#width').closest('label')!.hidden = hex;
+    $('#length').closest('label')!.firstChild!.textContent = hex ? 'Across' : 'Length';
+    $('#size-dims').classList.toggle('two', hex);
     // Shape Builder replaces the box size inputs with its own shape controls.
     $('#shape-builder').hidden = !shaped;
     for (const id of ['#units', '#size-hint', '#size-dims']) $(id).hidden = shaped;
@@ -405,7 +414,8 @@ export class SimpleTab {
   private applyLift() {
     const v = parseFloat($<HTMLInputElement>('#lift').value);
     const [L, , H] = this.dieline.outer;
-    this.preview.setLidLift(this.state.params.style === 'sleeve' ? v * L * 1.05 : v * H * 1.2);
+    const sliding = this.state.params.style === 'sleeve' || this.state.params.style === 'matchbox';
+    this.preview.setLidLift(sliding ? v * L * 1.05 : v * H * 1.2);
   }
 
   setFold(p: number) {

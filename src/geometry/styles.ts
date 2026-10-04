@@ -1,5 +1,6 @@
 import type { BoxParams, BoxStyle, Dieline, Face, Panel, PieceInfo, Vec2 } from '../types';
 import { carton } from './cartons';
+import { hexBox, mailer, matchbox } from './extra';
 import { glueTabPoly, rect } from './shapes';
 
 export const MARGIN = 5;
@@ -44,6 +45,18 @@ export const STYLE_INFO: Record<BoxStyle, { name: string; description: string }>
   sleeve: {
     name: 'Tray + sleeve',
     description: 'Two pieces: an open tray that slides into an outer sleeve, open at both ends.',
+  },
+  mailer: {
+    name: 'Pizza box',
+    description: 'One-piece mailer (FEFCO 0427 style). Double side walls lock the corners, the lid tucks in at the front. No glue.',
+  },
+  matchbox: {
+    name: 'Matchbox',
+    description: 'A drawer that slides out of a sleeve. The drawer has double side walls and needs no glue; thumb notches at both ends.',
+  },
+  hexagon: {
+    name: 'Hexagonal gift box',
+    description: 'Six-sided box with tuck lids at top and bottom. Length is the inside width across the flat sides.',
   },
   shape: {
     name: 'Shape Builder',
@@ -352,6 +365,9 @@ export function generateDieline(p: BoxParams): Dieline {
     case 'tray': return tray(p);
     case 'traylid': return traylid(p);
     case 'sleeve': return sleeve(p);
+    case 'mailer': return finish(mailer(p));
+    case 'matchbox': return finish(matchbox(p, sleevePiece, shift));
+    case 'hexagon': return finish(hexBox(p));
     // Built from a ShapeSpec rather than these parameters; see shapeDieline() in simple.ts.
     case 'shape': throw new Error('Shape Builder boxes are built from a shape, not box parameters');
   }

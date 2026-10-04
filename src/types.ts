@@ -12,6 +12,9 @@ export type BoxStyle =
   | 'tray'
   | 'traylid'
   | 'sleeve'
+  | 'mailer'
+  | 'matchbox'
+  | 'hexagon'
   | 'shape';
 
 export interface BoxParams {

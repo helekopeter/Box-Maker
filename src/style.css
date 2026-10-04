@@ -383,6 +383,9 @@ dialog#share-dialog::backdrop { background: rgba(20, 16, 10, 0.45); }
 }
 
 /* Shape Builder: the last style card takes a 2 × 2 block of the grid. */
+.grid3.two { grid-template-columns: 1fr 1fr; }
 .style-card.big { grid-column: span 2; grid-row: span 2; justify-content: center; gap: 8px; font-size: 14px; padding: 14px; }
 .style-card.big svg { width: 92px; height: 92px; }
+/* An odd card out just before the big one takes the whole row (icon beside the name). */
+.style-card:nth-child(odd):nth-last-child(2) { grid-column: span 2; flex-direction: row; justify-content: center; gap: 12px; }
 .sub { font-size: 13px; margin: 14px 0 6px; }

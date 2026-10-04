@@ -139,7 +139,7 @@ function tuckEnd(b: Body, e: End, attach: 'back' | 'front') {
  * chosen so the tip slides down just behind the inside of the opposite wall, which is how
  * the flap goes in when you close the lid by hand. Before that it bends in gradually.
  */
-function tuckMotion(W: number, T: number, t: number): { keys: [number, number][]; clearance: number } {
+export function tuckMotion(W: number, T: number, t: number): { keys: [number, number][]; clearance: number } {
   const rad = Math.PI / 180;
   const c = 1.25 * t + 0.25; // how far behind the wall's outer face the tip slides
   const ease = (x: number) => x * x * (3 - 2 * x);
