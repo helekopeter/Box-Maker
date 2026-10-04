@@ -4,6 +4,7 @@ import { buildSvg } from './export/svg';
 import { generateDieline, STYLE_INFO } from './geometry/styles';
 import { BoxPreview } from './preview3d';
 import type { Appearance, BoxParams, BoxStyle, Decal, Dieline, ExportOptions, FoldMode } from './types';
+import { bedWarning, bindBedInputs, fitsBed, onBedChange } from './bed';
 import { $, buildSwatches, download, el, num, syncSwatches } from './ui';
 
 /**
@@ -15,7 +16,6 @@ interface State {
   exp: ExportOptions;
   units: 'mm' | 'in';
   material: string;
-  bed: [number, number];
 }
 
 /** What the Simple tab saves to the Box Universe. */
@@ -43,7 +43,6 @@ const defaults = (): State => ({
   exp: { foldMode: 'score', includeArtwork: false, includeGlue: true },
   units: 'mm',
   material: '1.5',
-  bed: [600, 400],
 });
 
 function load(): State {
@@ -193,12 +192,11 @@ export class SimpleTab {
     const [L, W, H] = this.dieline.outer;
     const sw = this.dieline.width;
     const sh = this.dieline.height;
-    const [bw, bh] = this.state.bed;
-    const fits = (sw <= bw && sh <= bh) || (sw <= bh && sh <= bw);
+    const fits = fitsBed(sw, sh);
     $('#stats').innerHTML =
       `<div><span>Outside</span><b>${this.fmt(L)} × ${this.fmt(W)} × ${this.fmt(H)}</b></div>` +
       `<div><span>Sheet</span><b>${this.fmt(sw)} × ${this.fmt(sh)}</b></div>` +
-      (fits ? '' : `<div class="warn">⚠ Larger than your ${bw} × ${bh} mm laser bed. Make the box smaller or change the bed size under Advanced.</div>`);
+      (fits ? '' : `<div class="warn">${bedWarning()}</div>`);
   }
 
   // -------------------------------------------------------------------------
@@ -243,8 +241,6 @@ export class SimpleTab {
     $<HTMLInputElement>('#thickness').value = String(p.thickness);
     $<HTMLSelectElement>('#material').value = state.material;
     $('#thickness-row').hidden = state.material !== 'custom';
-    $<HTMLInputElement>('#bedW').value = String(state.bed[0]);
-    $<HTMLInputElement>('#bedH').value = String(state.bed[1]);
     document.querySelectorAll<HTMLButtonElement>('#units button').forEach((b) => b.classList.toggle('on', b.dataset.unit === state.units));
     $<HTMLInputElement>('#color').value = state.look.color;
     syncSwatches($('#swatches'), state.look.color);
@@ -283,15 +279,8 @@ export class SimpleTab {
       this.state.params.thickness = v;
       this.update();
     });
-    for (const [i, id] of (['bedW', 'bedH'] as const).entries()) {
-      $<HTMLInputElement>(`#${id}`).addEventListener('input', (e) => {
-        const v = num(e.target as HTMLInputElement, 10, 5000);
-        if (v === null) return;
-        this.state.bed[i] = v;
-        this.renderStats();
-        this.save();
-      });
-    }
+    bindBedInputs($<HTMLInputElement>('#bedW'), $<HTMLInputElement>('#bedH'));
+    onBedChange(() => this.renderStats());
     document.querySelectorAll<HTMLButtonElement>('#units button').forEach((b) =>
       b.addEventListener('click', () => {
         this.state.units = b.dataset.unit as 'mm' | 'in';

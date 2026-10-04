@@ -70,9 +70,6 @@
               <label class="row" id="lid-height-row">Lid height <span class="unit-label">mm</span><input type="number" id="lidHeight" min="5" step="1" /></label>
               <label class="row">Clearance <span class="unit-label">mm</span><input type="number" id="lidClearance" min="0" max="10" step="0.1" /></label>
             </div>
-            <label class="row">Laser bed <span class="unit-label">mm</span>
-              <span class="pair"><input type="number" id="bedW" min="50" step="10" /> × <input type="number" id="bedH" min="50" step="10" /></span>
-            </label>
           </details>
           <div class="stats" id="stats"></div>
         </section>
@@ -103,6 +100,9 @@
           </fieldset>
           <label class="check"><input type="checkbox" id="includeGlue" /> Mark glue areas</label>
           <label class="check"><input type="checkbox" id="includeArtwork" /> Include colour &amp; decals <span class="hint">for printing or engraving</span></label>
+          <label class="row">Laser bed (mm)
+            <span class="pair"><input type="number" id="bedW" min="50" step="10" aria-label="Bed width" /> × <input type="number" id="bedH" min="50" step="10" aria-label="Bed height" /></span>
+          </label>
           <div class="export-btns">
             <button class="btn" id="dl-svg-2">SVG</button>
             <button class="btn primary" id="dl-pdf-2">PDF</button>
@@ -255,6 +255,9 @@
           </fieldset>
           <label class="check"><input type="checkbox" id="adv-includeGlue" /> Mark glue areas</label>
           <label class="check"><input type="checkbox" id="adv-includeArtwork" /> Include colour &amp; decals</label>
+          <label class="row">Laser bed (mm)
+            <span class="pair"><input type="number" id="adv-bedW" min="50" step="10" aria-label="Bed width" /> × <input type="number" id="adv-bedH" min="50" step="10" aria-label="Bed height" /></span>
+          </label>
           <div class="export-btns">
             <button class="btn" id="adv-dl-svg">SVG</button>
             <button class="btn primary" id="adv-dl-pdf">PDF</button>

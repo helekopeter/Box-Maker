@@ -1,4 +1,5 @@
 import { renderArtwork } from '../artwork';
+import { bedWarning, bindBedInputs, fitsBed, onBedChange } from '../bed';
 import { DecalLayer } from '../decals';
 import { buildSvg } from '../export/svg';
 import { BoxPreview } from '../preview3d';
@@ -158,7 +159,8 @@ export class AdvancedTab {
       `<div><span>Panels</span><b>${this.design.panels.length + 1}</b></div>` +
       (bad.length
         ? `<div class="warn">⚠ ${bad.length === 1 ? 'Two panels overlap' : `${bad.length} pairs of panels overlap`} on the sheet (shown in red), so this can't be cut from one piece. Make them smaller, narrow them with taper, or move them to another edge.</div>`
-        : '');
+        : '') +
+      (fitsBed(this.dieline.width, this.dieline.height) ? '' : `<div class="warn">${bedWarning()}</div>`);
   }
 
   // -------------------------------------------------------------------------
@@ -197,6 +199,8 @@ export class AdvancedTab {
     $<HTMLInputElement>('#adv-includeGlue').addEventListener('change', (e) => (this.exp.includeGlue = (e.target as HTMLInputElement).checked));
     $<HTMLInputElement>('#adv-includeArtwork').checked = this.exp.includeArtwork;
     $<HTMLInputElement>('#adv-includeArtwork').addEventListener('change', (e) => (this.exp.includeArtwork = (e.target as HTMLInputElement).checked));
+    bindBedInputs($<HTMLInputElement>('#adv-bedW'), $<HTMLInputElement>('#adv-bedH'));
+    onBedChange(() => this.renderStats());
     $('#adv-dl-svg').addEventListener('click', () => this.downloadSvg());
     $('#adv-dl-pdf').addEventListener('click', () => this.downloadPdf());
 

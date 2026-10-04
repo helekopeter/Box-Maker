@@ -1,5 +1,6 @@
 import { toDieline, type AdvancedDesign } from '../advanced/model';
 import { renderArtwork } from '../artwork';
+import { bedWarning, fitsBed, onBedChange } from '../bed';
 import { buildSvg } from '../export/svg';
 import { BoxPreview } from '../preview3d';
 import type { Dieline, ExportOptions } from '../types';
@@ -46,6 +47,7 @@ export class ShapeTab {
     this.preview = new BoxPreview($('#shape-viewer'));
     this.buildCards();
     this.bind();
+    onBedChange(() => this.renderStats());
     this.sync();
     this.rebuild();
   }
@@ -260,6 +262,9 @@ export class ShapeTab {
       el('div', {}, el('span', { textContent: 'Panels' }), el('b', { textContent: String(r.design.panels.length + 1) })),
       el('p', { className: 'hint', textContent: `Unfolded with ${how}. Glue tabs are added on every seam.` }),
     );
+    if (!fitsBed(this.dieline.width, this.dieline.height)) {
+      $('#shape-stats').append(el('div', { className: 'warn', textContent: bedWarning() }));
+    }
     if (r.overlaps) {
       $('#shape-stats').append(
         el('div', { className: 'warn', textContent: '⚠ Some panels overlap on the sheet, so this can’t be cut from one piece yet. Try a smaller change in size between levels, or fix it up in Advanced.' }),
