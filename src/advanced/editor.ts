@@ -2,7 +2,8 @@ import { computeLines } from '../geometry/lines';
 import type { Dieline, Vec2 } from '../types';
 import {
   BASE_ID, deleteVertex, edgeOf, editablePoints, insertVertex, layout, makeChild, moveVertex,
-  canCarry, overlaps, rawPanels, toLocal, freeSpans, type AdvancedDesign, type Placed,
+  canCarry, clone, copySubtree, flipPanel, mirrorCopy, overlaps, rawPanels, subtree, toLocal, freeSpans,
+  type AdvancedDesign, type Placed,
 } from './model';
 
 export type Tool = 'select' | 'pen' | 'cut';
@@ -55,6 +56,8 @@ export class Editor {
   private drag: Drag | null = null;
   private pen: PenState | null = null;
   private cut: CutState | null = null;
+  /** Placing a copy of a panel: click a free edge to drop it there. */
+  private placing: { id: string; mirrored: boolean } | null = null;
   private hoverEdge: { panel: string; edge: number; at: Vec2; span?: [number, number] } | null = null;
   private cursor: Vec2 | null = null;
   private undoStack: string[] = [];
@@ -97,6 +100,7 @@ export class Editor {
     this.tool = t;
     this.pen = null;
     this.cut = null;
+    this.placing = null;
     this.hint();
     this.render();
   }
@@ -200,6 +204,38 @@ export class Editor {
     this.changed();
   }
 
+  /** Starts placing a copy of the selected panel (and what's on it) on a free edge. */
+  startDuplicate(mirrored = false) {
+    if (!this.selected || this.selected === BASE_ID) return;
+    this.setTool('select');
+    this.placing = { id: this.selected, mirrored };
+    this.hint();
+    this.render();
+  }
+
+  /** A mirrored copy at the other end of the selected panel's edge; false if there's no room. */
+  mirrorSelected(): boolean {
+    if (!this.selected || this.selected === BASE_ID) return false;
+    const before = clone(this.design);
+    const id = mirrorCopy(this.design, this.selected);
+    if (!id) return false;
+    this.undoStack.push(JSON.stringify(before));
+    this.redoStack = [];
+    this.selected = id;
+    this.changed();
+    this.onSelect();
+    this.keepInView(id);
+    return true;
+  }
+
+  /** Flips the selected panel (and what's on it) left to right. */
+  flipSelected() {
+    if (!this.selected || this.selected === BASE_ID) return;
+    this.checkpoint();
+    flipPanel(this.design, this.selected);
+    this.changed();
+  }
+
   /** Keyboard shortcuts; returns true if the key was handled. */
   key(e: KeyboardEvent): boolean {
     const mod = e.ctrlKey || e.metaKey;
@@ -212,13 +248,23 @@ export class Editor {
       this.redo();
       return true;
     }
+    if (mod && e.key.toLowerCase() === 'd') {
+      this.startDuplicate(e.shiftKey);
+      return true;
+    }
     if (e.key === 'Escape') {
-      if (this.pen || this.cut) {
+      if (this.pen || this.cut || this.placing) {
         this.pen = null;
         this.cut = null;
+        this.placing = null;
         this.hint();
         this.render();
       } else this.setTool('select');
+      return true;
+    }
+    if (this.placing && e.key.toLowerCase() === 'm' && !mod) {
+      this.placing.mirrored = !this.placing.mirrored;
+      this.render();
       return true;
     }
     if (e.key === 'Enter' && this.cut) {
@@ -334,6 +380,7 @@ export class Editor {
 
     if (this.tool === 'pen') return this.penClick(p);
     if (this.tool === 'cut') return this.cutClick(p);
+    if (this.placing) return this.placeClick(p);
 
     const add = target.closest('[data-add]');
     if (add) {
@@ -388,7 +435,7 @@ export class Editor {
       this.dragTo(d, p, e.shiftKey);
       return;
     }
-    if (this.tool === 'pen') {
+    if (this.tool === 'pen' || this.placing) {
       this.hoverEdge = this.pen ? null : this.nearestEdge(p, true);
       this.render();
     } else if (this.tool === 'cut' && this.cut) {
@@ -496,6 +543,33 @@ export class Editor {
     if (off) this.fit();
   }
 
+  /** Where a copy being placed would start on the hovered free stretch (null: no room). */
+  private placement(hit: { panel: string; edge: number; at: Vec2; span?: [number, number] } | null) {
+    if (!this.placing || !hit?.span) return null;
+    const src = this.placed.get(this.placing.id);
+    if (!src) return null;
+    const H = src.hinge;
+    const [s0, s1] = hit.span;
+    if (s1 - s0 < H - 0.01) return null;
+    const [a] = edgeOf(this.placed.get(hit.panel)!.poly, hit.edge);
+    const u = Math.hypot(hit.at[0] - a[0], hit.at[1] - a[1]);
+    return { ...hit, inset0: Math.max(s0, Math.min(s1 - H, this.snapVal(u - H / 2))) };
+  }
+
+  private placeClick(p: Vec2) {
+    const where = this.placement(this.nearestEdge(p, true));
+    if (!where || !this.placing) return;
+    this.checkpoint();
+    const id = copySubtree(this.design, this.placing.id, where.panel, where.edge, where.inset0, this.placing.mirrored);
+    this.placing = null;
+    this.hoverEdge = null;
+    if (id) this.selected = id;
+    this.changed();
+    this.onSelect();
+    this.hint();
+    if (id) this.keepInView(id);
+  }
+
   private penClick(p: Vec2) {
     if (!this.pen) {
       const hit = this.nearestEdge(p, true);
@@ -597,7 +671,7 @@ export class Editor {
 
   private hint() {
     const hints: Record<Tool, string> = {
-      select: '+ adds a wall or flap (only walls carry panels) · Shift-drag: one side · double-click edge: add corner · Ctrl+Z: undo',
+      select: '+ adds a wall or flap (only walls carry panels) · Shift-drag: one side · double-click edge: add corner · Ctrl+D: duplicate · Ctrl+Z: undo',
       pen: this.pen
         ? 'Click to add points. Click the starting edge again to finish (Backspace undoes a point, Esc cancels).'
         : 'Click a free edge of a wall (or the base) to start drawing a flap from it.',
@@ -605,7 +679,11 @@ export class Editor {
         ? 'Click to add points. Click the first point or press Enter to finish the cut-out.'
         : 'Click inside a panel to start a cut-out.',
     };
-    this.onToolHint(hints[this.tool]);
+    this.onToolHint(
+      this.placing
+        ? 'Click a free edge to place the copy (M: mirror it, Esc: cancel).'
+        : hints[this.tool],
+    );
   }
 
   private afterHistory() {
@@ -664,12 +742,12 @@ export class Editor {
       parts.push(`<text class="angle" x="${n(at[0])}" y="${n(at[1])}" font-size="${n(px(10))}">${Math.round(pl.panel.angle)}°</text>`);
     }
 
-    if (this.tool === 'select') parts.push(...this.addButtons(px));
+    if (this.tool === 'select' && !this.placing) parts.push(...this.addButtons(px));
     if (this.tool === 'select' && this.selected) parts.push(...this.handles(px));
     parts.push(...this.toolOverlay(px));
 
     this.svg.innerHTML = `<g transform="translate(${n(tx)} ${n(ty)}) scale(${n(scale)})">${parts.join('')}</g>`;
-    this.svg.style.cursor = this.tool === 'select' ? '' : 'crosshair';
+    this.svg.style.cursor = this.tool === 'select' && !this.placing ? '' : 'crosshair';
   }
 
   /** "+" buttons on every free stretch of edge. */
@@ -751,6 +829,24 @@ export class Editor {
         const pts = [this.pen.start, ...this.pen.points, ...(c ? [this.snapPt(c)] : [])];
         out.push(`<path class="draft" d="${pts.map((q, i) => `${i ? 'L' : 'M'}${n(q[0])} ${n(q[1])}`).join('')}"/>`);
         for (const q of [this.pen.start, ...this.pen.points]) out.push(`<circle class="draft-pt" cx="${n(q[0])}" cy="${n(q[1])}" r="${n(px(3.5))}"/>`);
+      }
+    }
+    if (this.placing) {
+      const where = this.placement(this.hoverEdge);
+      if (where) {
+        // A ghost of the copy where it would land.
+        const ghost = clone(this.design);
+        const id = copySubtree(ghost, this.placing.id, where.panel, where.edge, where.inset0, this.placing.mirrored);
+        const pls = layout(ghost);
+        const ids = id ? subtree(ghost, id).map((q) => q.id) : [];
+        const src = this.placed.get(this.placing.id)!;
+        out.push(this.spanPath(where.panel, where.edge, [where.inset0, where.inset0 + src.hinge]));
+        for (const g of ids) {
+          const pl = pls.get(g);
+          if (pl) out.push(`<path class="ghost" d="${pathOf([pl.poly])}"/>`);
+        }
+      } else if (this.hoverEdge) {
+        out.push(this.spanPath(this.hoverEdge.panel, this.hoverEdge.edge, this.hoverEdge.span).replace('edge-hover', 'edge-hover no'));
       }
     }
     if (this.tool === 'cut' && this.cut) {

@@ -417,6 +417,93 @@ export function removePanel(d: AdvancedDesign, id: string) {
   d.panels = d.panels.filter((p) => !doomed.has(p.id));
 }
 
+/** A panel and everything attached to it, parents first. */
+export function subtree(d: AdvancedDesign, id: string): CustomPanel[] {
+  const out = d.panels.filter((p) => p.id === id);
+  for (let i = 0; i < out.length; i++) out.push(...d.panels.filter((p) => p.parent === out[i].id));
+  return out;
+}
+
+/**
+ * Mirrors a panel and everything on it left to right, in place: each panel's outline is
+ * flipped along its hinge, and the panels on it move to the matching mirrored edges.
+ * `panels` must be a whole subtree (see `subtree`); `hinges` gives each one's hinge length.
+ */
+function mirrorPanels(panels: CustomPanel[], hinges: Map<string, number>) {
+  const ids = new Set(panels.map((p) => p.id));
+  for (const p of panels) {
+    const H = hinges.get(p.id) ?? 0;
+    const m = ([u, v]: Vec2): Vec2 => [H - u, v];
+    const N = p.shape.type === 'rect' ? 4 : p.shape.points.length + 2;
+    if (p.shape.type === 'rect') [p.shape.taper0, p.shape.taper1] = [p.shape.taper1, p.shape.taper0];
+    else p.shape.points = p.shape.points.map(m).reverse();
+    p.holes = p.holes.map((h) => h.map(m));
+    if (p.face?.rect) {
+      const [u0, v0, u1, v1] = p.face.rect;
+      p.face.rect = [H - u1, v0, H - u0, v1];
+    }
+    if (p.face?.rotation) p.face.rotation = (360 - p.face.rotation) % 360;
+    // Vertex j of the mirrored outline is vertex (1 - j) of the original, so edge k becomes
+    // edge (N - k) mod N and runs the other way.
+    for (const c of panels) {
+      if (c.parent !== p.id || !ids.has(c.id)) continue;
+      c.edge = (N - c.edge) % N;
+      [c.inset0, c.inset1] = [c.inset1, c.inset0];
+    }
+  }
+}
+
+/** Flips a panel (and what's on it) left to right where it is. */
+export function flipPanel(d: AdvancedDesign, id: string) {
+  const placed = layout(d);
+  const list = subtree(d, id);
+  mirrorPanels(list, new Map(list.map((p) => [p.id, placed.get(p.id)?.hinge ?? 0])));
+}
+
+/**
+ * Copies a panel and everything on it onto edge `edge` of `parent`, starting `inset0` mm
+ * along it (the copy keeps its hinge length). Returns the copy's id.
+ */
+export function copySubtree(d: AdvancedDesign, id: string, parent: string, edge: number, inset0: number, mirrored = false): string | null {
+  const placed = layout(d);
+  const src = placed.get(id);
+  const target = placed.get(parent);
+  if (!src || !target || !canCarry(d, parent)) return null;
+  const [a, b] = edgeOf(target.poly, edge);
+  const L = len(sub(b, a));
+  const list = clone(subtree(d, id));
+  const hinges = new Map(list.map((p) => [p.id, placed.get(p.id)?.hinge ?? 0]));
+  if (mirrored) mirrorPanels(list, hinges);
+  const ids = new Map(list.map((p) => [p.id, uid()]));
+  for (const p of list) {
+    hinges.set(ids.get(p.id)!, hinges.get(p.id)!);
+    p.id = ids.get(p.id)!;
+    if (ids.has(p.parent)) p.parent = ids.get(p.parent)!;
+  }
+  const root = list[0];
+  root.parent = parent;
+  root.edge = edge;
+  root.inset0 = inset0;
+  root.inset1 = Math.max(0, L - inset0 - src.hinge);
+  d.panels.push(...list);
+  return root.id;
+}
+
+/**
+ * A mirrored copy at the other end of the same edge (e.g. a second leg). Null when that
+ * spot is taken or is where the panel already is.
+ */
+export function mirrorCopy(d: AdvancedDesign, id: string): string | null {
+  const p = d.panels.find((x) => x.id === id);
+  const pl = layout(d).get(id);
+  if (!p || !pl) return null;
+  const start = p.inset1;
+  if (Math.abs(start - p.inset0) < 0.5) return null;
+  const free = freeSpans(d, p.parent, p.edge);
+  if (!free.some(([s0, s1]) => s0 <= start + 0.01 && s1 >= start + pl.hinge - 0.01)) return null;
+  return copySubtree(d, id, p.parent, p.edge, start, true);
+}
+
 /** The editable outline of a panel in its own frame (base: sheet), for vertex editing. */
 export function editablePoints(d: AdvancedDesign, id: string): Vec2[] | null {
   if (id === BASE_ID) return basePoly(d.base);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BASE_ID, clone, deleteVertex, freeSpans, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
+  BASE_ID, clone, copySubtree, deleteVertex, flipPanel, freeSpans, mirrorCopy, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
   removePanel, sanitizeDesign, toDieline, type AdvancedDesign,
 } from '../src/advanced/model';
 import { foldedBounds } from '../src/geometry/fold';
@@ -222,5 +222,40 @@ describe('walls vs flaps', () => {
     const { cuts, folds } = computeLines(toDieline(d));
     expect(length(folds)).toBeCloseTo(hinges, 3);
     expect(chainSegments(cuts).length).toBe(1);
+  });
+
+  it('mirrors a leg (and the walls on it) to the other end of the edge', () => {
+    const d = sanitizeDesign(chair)!;
+    const before = layout(d);
+    const n = d.panels.length;
+    const copy = mirrorCopy(d, 'sibonfo')!;
+    expect(copy).toBeTruthy();
+    expect(d.panels.length).toBe(n + 4);
+    // The rim's outer edge runs along x = 108 from y = 100 to y = 0, so mirroring along it
+    // maps y to 100 - y. Every corner of the copy matches a mirrored corner of the original.
+    const after = layout(d);
+    const key = (q: number[]) => `${q[0].toFixed(2)},${q[1].toFixed(2)}`;
+    const orig = new Set(['sibonfo', 'ppce5mw', 'wwin6g2', 'iufk89m'].flatMap((id) => before.get(id)!.poly.map((q) => key([q[0], 100 - q[1]]))));
+    const copied = new Set(d.panels.slice(n).flatMap((p) => after.get(p.id)!.poly.map(key)));
+    expect(copied).toEqual(orig);
+    // Nothing left to mirror into: a second mirror copy finds the spot taken.
+    expect(mirrorCopy(d, 'sibonfo')).toBeNull();
+    expect(overlaps(d)).toEqual([]);
+  });
+
+  it('flips in place and duplicates onto another edge', () => {
+    const d = sanitizeDesign(chair)!;
+    const snapshot = JSON.stringify(layout(d).get('iufk89m')!.poly);
+    flipPanel(d, 'sibonfo');
+    expect(JSON.stringify(layout(d).get('iufk89m')!.poly)).not.toBe(snapshot);
+    flipPanel(d, 'sibonfo');
+    const back = layout(d).get('iufk89m')!.poly.map((q) => q.map((v) => Math.round(v * 1000) / 1000));
+    expect(back).toEqual(JSON.parse(snapshot).map((q: number[]) => q.map((v) => Math.round(v * 1000) / 1000)));
+
+    const id = copySubtree(d, 'sibonfo', 'w1tvgfk', 2, 45)!;
+    const root = d.panels.find((p) => p.id === id)!;
+    expect([root.inset0, root.inset1]).toEqual([45, 45]);
+    expect(d.panels.filter((p) => p.parent === id).length).toBe(1);
+    expect(layout(d).size).toBe(1 + d.panels.length);
   });
 });

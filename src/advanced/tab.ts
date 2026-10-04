@@ -4,7 +4,7 @@ import { DecalLayer } from '../decals';
 import { buildSvg } from '../export/svg';
 import { BoxPreview } from '../preview3d';
 import type { Decal, Dieline, ExportOptions, FoldMode, Vec2 } from '../types';
-import { $, buildSwatches, download, el, syncSwatches } from '../ui';
+import { $, buildSwatches, download, el, syncSwatches, toast } from '../ui';
 import { Editor, type Tool } from './editor';
 import {
   BASE_ID, clone, layout, makeCustom, newDesign, overlaps, sanitizeDesign, toDieline, type AdvancedDesign,
@@ -396,6 +396,18 @@ export class AdvancedTab {
       field('Layer', p.layer, 'layer', (v) => (p.layer = Math.round(v)), { min: -5, max: 5 }),
       el('p', { className: 'hint', textContent: 'Positive angles fold inwards. Lower fold order folds first. Layer: panels that overlap when folded stack by layer (higher is further outside).' }),
     );
+
+    const copies = el('div', { className: 'btn-row' });
+    const dup = button('Duplicate', () => this.editor.startDuplicate());
+    dup.title = 'Copy this panel and everything on it, then click a free edge to place it (Ctrl+D)';
+    const mirror = button('Mirror copy', () => {
+      if (!this.editor.mirrorSelected()) toast('The other end of this edge isn’t free. Use Duplicate and press M to place a mirrored copy anywhere.');
+    });
+    mirror.title = 'A mirrored copy at the other end of the same edge, e.g. a second leg';
+    const flip = button('Flip', () => this.editor.flipSelected());
+    flip.title = 'Mirror this panel (and everything on it) left to right where it is';
+    copies.append(dup, mirror, flip);
+    host.append(copies);
 
     const actions = el('div', { className: 'btn-row' });
     if (p.shape.type === 'rect') actions.append(button('Free-form shape', () => edit('shape', () => makeCustom(this.design, p.id))));
