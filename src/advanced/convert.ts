@@ -1,5 +1,7 @@
-import type { Dieline, Panel, PanelKind, Vec2 } from '../types';
-import { BASE_ID, outwardNormal, type AdvancedDesign, type BasePanel, type ChildShape, type CustomKind, type CustomPanel, type ExtraPiece } from './model';
+import type { Bez, Dieline, Panel, PanelKind, Vec2 } from '../types';
+import { restartLoop, stepsOf } from '../export/curves';
+import { sampleBez } from '../geometry/shapes';
+import { BASE_ID, outwardNormal, type AdvancedDesign, type BasePanel, type ChildShape, type CustomKind, type CustomPanel, type ExtraPiece, type Handle } from './model';
 
 const KIND: Record<PanelKind, CustomKind> = { face: 'wall', flap: 'flap', glue: 'glue' };
 const EPS = 0.01;
@@ -82,11 +84,21 @@ export function fromDieline(
     const ys = root.poly.map((q) => mv(q)[1]);
     const at: Vec2 = [Math.min(...xs), Math.min(...ys)];
     const local = (q: Vec2): Vec2 => [mv(q)[0] - at[0], mv(q)[1] - at[1]];
-    const rootPoly = root.poly.map(local);
     const W = Math.max(...xs) - at[0];
     const H = Math.max(...ys) - at[1];
-    const isRect = rootPoly.length === 4 && near(rootPoly[0], [0, 0]) && near(rootPoly[1], [W, 0]) && near(rootPoly[2], [W, H]) && near(rootPoly[3], [0, H]);
-    const base: BasePanel = { width: W, height: H, ...(isRect ? {} : { points: rootPoly }), holes: (root.holes ?? []).map((h) => h.map(local)) };
+    // Curved stretches come back as corners with handles.
+    const rootCurves = (root.curves ?? []).map((c) => c.map(local) as Bez);
+    const rootShape = collapse(root.poly.map(local), rootCurves, true);
+    const rootPoly = rootShape.corners;
+    const isRect = !rootShape.curved && rootPoly.length === 4 && near(rootPoly[0], [0, 0]) && near(rootPoly[1], [W, 0]) && near(rootPoly[2], [W, H]) && near(rootPoly[3], [0, H]);
+    const rootHoles = (root.holes ?? []).map((h) => h.map(local));
+    const rootHoleCurves = holeCurvesOf(rootCurves, rootHoles);
+    const base: BasePanel = {
+      width: W, height: H,
+      ...(isRect ? {} : { points: rootPoly, ...(rootShape.curved ? { handles: rootShape.handles } : {}) }),
+      holes: rootHoles,
+      ...(rootHoleCurves.length ? { holeCurves: rootHoleCurves } : {}),
+    };
     if (i === 0) design.base = base;
     else {
       const piece: ExtraPiece = {
@@ -160,6 +172,44 @@ function pieceName(role: string, i: number): string {
   return role === 'lid' ? 'Lid' : role === 'sleeve' ? 'Sleeve' : role === 'insert' ? 'Insert' : `Piece ${i + 1}`;
 }
 
+/**
+ * Collapses the points along an outline's curves back into corners with curve handles.
+ * `loop`: the outline may start part way along a curve (restart it first).
+ */
+function collapse(ring: Vec2[], curves: Bez[], loop: boolean): { corners: Vec2[]; handles: (Handle | null)[]; curved: boolean } {
+  if (!curves.length) return { corners: ring, handles: ring.map(() => null), curved: false };
+  const info = curves.map((bez) => {
+    const pts = sampleBez(bez);
+    return { bez, first: pts[0], last: pts.length > 1 ? pts[pts.length - 2] : bez[0], inner: pts.slice(0, -1) };
+  });
+  let closed = [...ring, ring[0]];
+  if (loop) closed = restartLoop(closed, info);
+  const corners: Vec2[] = [closed[0]];
+  const handles: (Handle | null)[] = [null];
+  let curved = false;
+  for (const step of stepsOf(closed, info)) {
+    const prev = corners.length - 1;
+    const last = corners[prev];
+    if (step.c) {
+      curved = true;
+      handles[prev] = { ...(handles[prev] ?? {}), out: [step.c[0][0] - last[0], step.c[0][1] - last[1]] };
+    }
+    const back = near(step.p, corners[0]);
+    const idx = back ? 0 : corners.length;
+    if (!back) {
+      corners.push(step.p);
+      handles.push(null);
+    }
+    if (step.c) handles[idx] = { ...(handles[idx] ?? {}), in: [step.c[1][0] - step.p[0], step.c[1][1] - step.p[1]] };
+  }
+  return { corners, handles, curved };
+}
+
+/** The curves that belong to the cut-outs (they start on a hole's outline). */
+function holeCurvesOf(curves: Bez[], holes: Vec2[][]): Bez[] {
+  return curves.filter((c) => holes.some((h) => h.some((q) => near(q, c[0], 1e-3) || near(q, c[3], 1e-3))));
+}
+
 function inPoly([x, y]: Vec2, poly: Vec2[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -215,14 +265,18 @@ function convertChild(p: Panel, parentOutline: Vec2[], parentId: string, mv: (q:
     i = poly.findIndex((q) => near(q, start));
     if (!near(poly[(i + 1) % poly.length], end)) return null;
   }
-  const ordered = [...poly.slice(i), ...poly.slice(0, i)];
-  const local = ordered.map(toLocal);
+  const curves = (p.curves ?? []).map((c) => c.map((q) => toLocal(mv(q))) as Bez);
+  // Curved stretches come back as corners with handles (the outline starts at the hinge,
+  // which is never part way along a curve).
+  const collapsed = collapse([...poly.slice(i), ...poly.slice(0, i)].map(toLocal), curves, false);
+  const local = collapsed.corners;
+  const ordered = local.map(([u, v]) => [origin[0] + U[0] * u + V[0] * v, origin[1] + U[1] * u + V[1] * v] as Vec2);
   const rest = local.slice(2);
   if (!rest.length) return null;
 
   // Recognise rectangles and trapezoids (far edge parallel to the hinge).
-  let shape: ChildShape = { type: 'custom', points: rest };
-  if (rest.length === 2 && Math.abs(rest[0][1] - rest[1][1]) < EPS && rest[0][1] > 0) {
+  let shape: ChildShape = { type: 'custom', points: rest, ...(collapsed.curved ? { handles: collapsed.handles.slice(2) } : {}) };
+  if (!collapsed.curved && rest.length === 2 && Math.abs(rest[0][1] - rest[1][1]) < EPS && rest[0][1] > 0) {
     shape = { type: 'rect', depth: rest[0][1], taper0: rest[1][0], taper1: hingeLen - rest[0][0] };
   }
 
@@ -243,6 +297,8 @@ function convertChild(p: Panel, parentOutline: Vec2[], parentId: string, mv: (q:
     ...(p.open ? { open: p.open } : {}),
     holes: (p.holes ?? []).map((h) => h.map((q) => toLocal(mv(q)))),
   };
+  const hc = holeCurvesOf(curves, panel.holes);
+  if (hc.length) panel.holeCurves = hc;
   // The Advanced model rebuilds the outline from the frame; keep the same order.
   return { panel, outline: ordered, toLocal };
 }

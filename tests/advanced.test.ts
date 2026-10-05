@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addPiece, addTabJoints, BASE_ID, clone, copySubtree, deleteVertex, flipPanel, freeSpans, mirrorCopy, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
-  rawPanels, removePanel, removePiece, sanitizeDesign, setEdgeLength, toDieline, type AdvancedDesign,
+  rawPanels, removePanel, removePiece, sanitizeDesign, setEdgeLength, setHandle, toggleCurve, toDieline, type AdvancedDesign,
 } from '../src/advanced/model';
 import { Vector3 } from 'three';
 import { foldedBounds, localMatrices } from '../src/geometry/fold';
@@ -360,5 +360,44 @@ describe('walls vs flaps', () => {
     removePiece(d, pc.id);
     expect(d.pieces).toBeUndefined();
     expect(toDieline(d).panels.length).toBe(5);
+  });
+
+  it('keeps rounded edges as curves with handles when converting', async () => {
+    const { generateDieline } = await import('../src/geometry/styles');
+    const { fromDieline } = await import('../src/advanced/convert');
+    const { buildSvg } = await import('../src/export/svg');
+    const dl = generateDieline({ style: 'tuck', length: 100, width: 60, height: 80, thickness: 1.5, glueTab: 15, lidHeight: 30, lidClearance: 1 });
+    const { design } = fromDieline(dl, { name: 'tuck', thickness: 1.5, color: '#fff' });
+    const tuck = design.panels.find((p) => p.id === 'top-tuck')!;
+    // The rounded tuck flap is a few corners with handles, not dozens of points.
+    expect(tuck.shape.type).toBe('custom');
+    if (tuck.shape.type !== 'custom') return;
+    expect(tuck.shape.points.length).toBe(4);
+    expect(tuck.shape.handles?.filter(Boolean).length).toBe(4);
+    // Round trip: same curves in the cut file, and the same outline.
+    const back = toDieline(sanitizeDesign(JSON.parse(JSON.stringify(design)))!);
+    const count = (d: typeof dl) => d.panels.reduce((n, p) => n + (p.curves?.length ?? 0), 0);
+    expect(count(back)).toBe(count(dl));
+    const svg = buildSvg(back, { color: '#fff', decals: [] }, { foldMode: 'score', includeArtwork: false, includeGlue: false });
+    expect((svg.match(/id="cut"[^>]*><path d="([^"]+)"/)![1].match(/C/g) ?? []).length).toBe(count(dl));
+    const a = foldedBounds(dl, 1, { thickness: 1.5 });
+    const b = foldedBounds(back, 1, { thickness: 1.5 });
+    for (const k of ['x', 'y', 'z'] as const) expect(b.max[k] - b.min[k]).toBeCloseTo(a.max[k] - a.min[k], 1);
+  });
+
+  it('rounds a corner into a curve and back', () => {
+    const d = tray();
+    const wall = d.panels[0];
+    makeCustom(d, wall.id);
+    expect(toggleCurve(d, wall.id, 2)).toBe(true);
+    const pl = layout(d).get(wall.id)!;
+    expect(pl.curves.length).toBe(2); // the edges either side of the corner
+    expect(pl.shape.length).toBeGreaterThan(pl.poly.length + 4);
+    setHandle(d, wall.id, 2, 'out', [0, 30]);
+    expect(layout(d).get(wall.id)!.curves[1][1]).toEqual(expect.arrayContaining([expect.any(Number)]));
+    expect(toggleCurve(d, wall.id, 2)).toBe(false);
+    expect(layout(d).get(wall.id)!.curves.length).toBe(0);
+    // Hinge corners stay sharp.
+    expect(toggleCurve(d, wall.id, 0)).toBe(false);
   });
 });

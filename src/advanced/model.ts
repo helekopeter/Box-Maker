@@ -1,9 +1,10 @@
 import { sanitizeDecals, sanitizeTexture } from '../decals';
 import { Matrix4, Vector3 } from 'three';
 import { foldedBounds, localMatrices } from '../geometry/fold';
+import { sampleBez } from '../geometry/shapes';
 import { finish } from '../geometry/styles';
 import { pointInPoly } from '../geometry/surface';
-import type { Decal, Dieline, Face, Panel, PanelKind, PieceInfo, Texture, Vec2 } from '../types';
+import type { Bez, Decal, Dieline, Face, Panel, PanelKind, PieceInfo, Texture, Vec2 } from '../types';
 
 /**
  * A box drawn from scratch in the Advanced tab.
@@ -62,11 +63,25 @@ export interface FaceSpec {
   rect?: [number, number, number, number];
 }
 
+/**
+ * A curve handle on a corner of a free-form outline: offsets (in the panel's frame) from the
+ * corner to the control points of the curve leaving it (`out`) and arriving at it (`in`).
+ * Without a handle on either end an edge is straight.
+ */
+export interface Handle {
+  in?: Vec2;
+  out?: Vec2;
+}
+
 export interface BasePanel {
   width: number;
   height: number;
   /** Custom outline in sheet coordinates; replaces width × height when set. */
   points?: Vec2[];
+  /** Curve handles for `points` (same order). */
+  handles?: (Handle | null)[];
+  /** Curved parts of the cut-outs (e.g. a rounded slot), in the same frame as `holes`. */
+  holeCurves?: Bez[];
   holes: Vec2[][];
   face?: FaceSpec;
 }
@@ -76,7 +91,7 @@ export type CustomKind = 'wall' | 'flap' | 'glue';
 export type ChildShape =
   | { type: 'rect'; depth: number; taper0: number; taper1: number }
   /** Outline after the hinge, from the hinge's end back round to its start, in (u, v). */
-  | { type: 'custom'; points: Vec2[] };
+  | { type: 'custom'; points: Vec2[]; handles?: (Handle | null)[] };
 
 export interface CustomPanel {
   id: string;
@@ -103,6 +118,8 @@ export interface CustomPanel {
   open?: number;
   /** Cut-outs, in the panel's (u, v) frame. */
   holes: Vec2[][];
+  /** Curved parts of the cut-outs, in the same frame. */
+  holeCurves?: Bez[];
 }
 
 export const BASE_ID = 'base';
@@ -133,6 +150,10 @@ export interface Placed {
   panel?: CustomPanel;
   /** The base panel of the piece this panel belongs to. */
   root: string;
+  /** The outline with its curves drawn out as points (`poly` is just the corners). */
+  shape: Vec2[];
+  /** Its curves (outline and cut-outs), on the sheet. */
+  curves: Bez[];
 }
 
 const add = (a: Vec2, b: Vec2): Vec2 => [a[0] + b[0], a[1] + b[1]];
@@ -169,6 +190,43 @@ export function basePoly(b: BasePanel): Vec2[] {
   return b.points ?? [[0, 0], [b.width, 0], [b.width, b.height], [0, b.height]];
 }
 
+/** Curve handles of an outline's corners, by corner (null where there's none). */
+export function cornerHandles(d: AdvancedDesign, id: string, corners: number): (Handle | null)[] {
+  const root = rootBase(d, id);
+  const p = root ? null : d.panels.find((x) => x.id === id);
+  const list = root ? (root.points ? root.handles : undefined) : p?.shape.type === 'custom' ? p.shape.handles : undefined;
+  const offset = root ? 0 : 2; // a panel's first two corners are its hinge
+  return Array.from({ length: corners }, (_, k) => (k >= offset ? list?.[k - offset] ?? null : null));
+}
+
+/**
+ * Draws out a closed outline with curves: the points along it (corners included) and the
+ * curves themselves. Edge k is curved if corner k has an `out` handle or corner k + 1 an
+ * `in` one.
+ */
+export function curvedOutline(corners: Vec2[], handles: (Handle | null)[]): { pts: Vec2[]; bez: Bez[] } {
+  const pts: Vec2[] = [];
+  const bez: Bez[] = [];
+  const n = corners.length;
+  for (let k = 0; k < n; k++) {
+    const a = corners[k];
+    const b = corners[(k + 1) % n];
+    pts.push(a);
+    const out = handles[k]?.out;
+    const inn = handles[(k + 1) % n]?.in;
+    if (!out && !inn) continue;
+    const c: Bez = [a, out ? add(a, out) : a, inn ? add(b, inn) : b, b];
+    bez.push(c);
+    pts.push(...sampleBez(c).slice(0, -1));
+  }
+  return { pts, bez };
+}
+
+/** Whether edge k of a panel's outline is curved. */
+export function edgeCurved(handles: (Handle | null)[], k: number): boolean {
+  return !!(handles[k]?.out || handles[(k + 1) % handles.length]?.in);
+}
+
 /** The child's outline in its own (u, v) frame, hinge first. */
 export function localPoly(p: CustomPanel, hinge: number): Vec2[] {
   if (p.shape.type === 'rect') {
@@ -203,7 +261,9 @@ export function layout(d: AdvancedDesign): Map<string, Placed> {
     const mv = ([x, y]: Vec2): Vec2 => [x + r.at[0], y + r.at[1]];
     out.set(r.id, {
       id: r.id, poly: basePoly(r.base).map(mv), holes: r.base.holes.map((h) => h.map(mv)), origin: r.at, U: [1, 0], V: [0, 1], hinge: 0, depth: 0, root: r.id,
+      shape: [], curves: [],
     });
+    withShape(d, out.get(r.id)!, r.base.holeCurves);
   }
   const children = new Map<string, CustomPanel[]>();
   for (const p of d.panels) children.set(p.parent, [...(children.get(p.parent) ?? []), p]);
@@ -221,14 +281,26 @@ export function layout(d: AdvancedDesign): Map<string, Placed> {
       const V = outwardNormal(parent.poly, p.edge);
       const placed: Placed = {
         id: p.id, poly: [], holes: [], origin: add(a, mul(U, p.inset0)), U, V, hinge, depth: parent.depth + 1, panel: p, root: parent.root,
+        shape: [], curves: [],
       };
       placed.poly = localPoly(p, hinge).map((q) => toSheet(placed, q));
       placed.holes = p.holes.map((h) => h.map((q) => toSheet(placed, q)));
+      withShape(d, placed, p.holeCurves);
       out.set(p.id, placed);
       queue.push(p.id);
     }
   }
   return out;
+}
+
+/** Fills in a placed panel's drawn-out outline and its curves (on the sheet). */
+function withShape(d: AdvancedDesign, pl: Placed, holeCurves?: Bez[]) {
+  // Handles are offsets, so they turn with the panel's frame but don't move with it.
+  const turn = ([u, v]: Vec2): Vec2 => add(mul(pl.U, u), mul(pl.V, v));
+  const handles = cornerHandles(d, pl.id, pl.poly.length).map((h) => (h ? { ...(h.in ? { in: turn(h.in) } : {}), ...(h.out ? { out: turn(h.out) } : {}) } : null));
+  const { pts, bez } = curvedOutline(pl.poly, handles);
+  pl.shape = pts;
+  pl.curves = [...bez, ...(holeCurves ?? []).map((c) => c.map((q) => toSheet(pl, q)) as Bez)];
 }
 
 const KIND: Record<CustomKind, PanelKind> = { wall: 'face', flap: 'flap', glue: 'glue' };
@@ -243,8 +315,9 @@ export function rawPanels(d: AdvancedDesign): Panel[] {
       id: pl.id,
       piece: pieceOf.get(pl.root) ?? 0,
       kind: p ? KIND[p.kind] : 'face',
-      poly: pl.poly.map((q) => [q[0], q[1]] as Vec2),
+      poly: pl.shape.map((q) => [q[0], q[1]] as Vec2),
       ...(pl.holes.length ? { holes: pl.holes.map((h) => h.map((q) => [q[0], q[1]] as Vec2)) } : {}),
+      ...(pl.curves.length ? { curves: pl.curves.map((c) => c.map((q) => [q[0], q[1]] as Vec2) as Bez) } : {}),
       ...(p
         ? {
             parent: p.parent,
@@ -332,7 +405,7 @@ function designFaces(d: AdvancedDesign): Face[] {
       const [u0, v0, u1, v1] = spec.rect;
       corners = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map((q) => toSheet(pl, q as Vec2));
     } else {
-      if (pl.poly.length !== 4) continue;
+      if (pl.poly.length !== 4 || pl.shape.length !== 4) continue;
       corners = pl.poly;
     }
     const xs = corners.map((q) => q[0]);
@@ -398,7 +471,7 @@ export function overlaps(d: AdvancedDesign): [string, string][] {
   const out: [string, string][] = [];
   for (let i = 0; i < list.length; i++)
     for (let j = i + 1; j < list.length; j++)
-      if (polysOverlap(list[i].poly, list[j].poly)) out.push([list[i].id, list[j].id]);
+      if (polysOverlap(list[i].shape, list[j].shape)) out.push([list[i].id, list[j].id]);
   return out;
 }
 
@@ -427,6 +500,8 @@ export function canCarry(d: AdvancedDesign, id: string): boolean {
 export function freeSpans(d: AdvancedDesign, id: string, edge: number, placed = layout(d)): [number, number][] {
   const pl = placed.get(id);
   if (!pl || (!isRoot(d, id) && edge === 0) || edge < 0 || edge >= pl.poly.length) return [];
+  // Nothing can hang off a curved edge.
+  if (edgeCurved(cornerHandles(d, id, pl.poly.length), edge)) return [];
   const [a, b] = edgeOf(pl.poly, edge);
   const L = len(sub(b, a));
   const taken = d.panels
@@ -520,8 +595,14 @@ function mirrorPanels(panels: CustomPanel[], hinges: Map<string, number>) {
     const m = ([u, v]: Vec2): Vec2 => [H - u, v];
     const N = p.shape.type === 'rect' ? 4 : p.shape.points.length + 2;
     if (p.shape.type === 'rect') [p.shape.taper0, p.shape.taper1] = [p.shape.taper1, p.shape.taper0];
-    else p.shape.points = p.shape.points.map(m).reverse();
+    else {
+      p.shape.points = p.shape.points.map(m).reverse();
+      // Handles mirror too, and swap ends as the outline now runs the other way.
+      const flip = (v?: Vec2): Vec2 | undefined => (v ? [-v[0], v[1]] : undefined);
+      if (p.shape.handles) p.shape.handles = p.shape.handles.map((h) => (h ? { ...(h.out ? { in: flip(h.out) } : {}), ...(h.in ? { out: flip(h.in) } : {}) } : null)).reverse();
+    }
     p.holes = p.holes.map((h) => h.map(m));
+    if (p.holeCurves) p.holeCurves = p.holeCurves.map((c) => c.map(m) as Bez);
     if (p.face?.rect) {
       const [u0, v0, u1, v1] = p.face.rect;
       p.face.rect = [H - u1, v0, H - u0, v1];
@@ -620,11 +701,13 @@ export function insertVertex(d: AdvancedDesign, id: string, k: number, at: Vec2)
   const root = rootBase(d, id);
   if (root) {
     root.points!.splice(k + 1, 0, at);
+    root.handles?.splice(k + 1, 0, null);
   } else {
     const p = d.panels.find((x) => x.id === id)!;
     if (p.shape.type !== 'custom' || k < 1) return;
     // Outline = [hinge start, hinge end, ...points]; vertex k+1 is points[k - 1].
     p.shape.points.splice(k - 1, 0, at);
+    p.shape.handles?.splice(k - 1, 0, null);
   }
   for (const c of d.panels) if (c.parent === id && c.edge > k) c.edge += 1;
 }
@@ -636,10 +719,12 @@ export function deleteVertex(d: AdvancedDesign, id: string, k: number) {
   if (root) {
     if (root.points!.length <= 3) return;
     root.points!.splice(k, 1);
+    root.handles?.splice(k, 1);
   } else {
     const p = d.panels.find((x) => x.id === id)!;
     if (p.shape.type !== 'custom' || k < 2 || p.shape.points.length <= 1) return;
     p.shape.points.splice(k - 2, 1);
+    p.shape.handles?.splice(k - 2, 1);
   }
   // Edges k-1 and k merge into k-1.
   for (const c of d.panels) {
@@ -648,6 +733,57 @@ export function deleteVertex(d: AdvancedDesign, id: string, k: number) {
     else if (c.edge > k) c.edge -= 1;
   }
   d.panels = d.panels.filter((c) => c.parent !== id || c.edge >= 0);
+}
+
+/** The handle list of a panel's free-form outline and the index of corner `k` in it. */
+function handleSlot(d: AdvancedDesign, id: string, k: number): { list: (Handle | null)[]; i: number } | null {
+  makeCustom(d, id);
+  const root = rootBase(d, id);
+  if (root) {
+    const n = root.points!.length;
+    root.handles = Array.from({ length: n }, (_, j) => root.handles?.[j] ?? null);
+    return { list: root.handles, i: k };
+  }
+  const p = d.panels.find((x) => x.id === id);
+  if (!p || p.shape.type !== 'custom' || k < 2) return null; // the hinge stays straight
+  const n = p.shape.points.length;
+  p.shape.handles = Array.from({ length: n }, (_, j) => (p.shape.type === 'custom' ? p.shape.handles?.[j] ?? null : null));
+  return { list: p.shape.handles, i: k - 2 };
+}
+
+/** Sets one side (`in` or `out`) of corner k's curve handle (in the panel's frame), or clears it. */
+export function setHandle(d: AdvancedDesign, id: string, k: number, side: 'in' | 'out', v: Vec2 | null) {
+  const slot = handleSlot(d, id, k);
+  if (!slot) return;
+  const h = { ...(slot.list[slot.i] ?? {}) };
+  if (v) h[side] = v;
+  else delete h[side];
+  slot.list[slot.i] = h.in || h.out ? h : null;
+}
+
+/**
+ * Rounds corner k into a smooth curve (handles along the line between its neighbours), or
+ * makes a rounded corner sharp again. Returns whether it is now curved.
+ */
+export function toggleCurve(d: AdvancedDesign, id: string, k: number): boolean {
+  const pts = editablePoints(d, id);
+  const slot = handleSlot(d, id, k);
+  if (!pts || !slot) return false;
+  // A fully rounded corner goes back to sharp; a sharp corner, or one where a curve meets
+  // a straight edge, becomes smooth.
+  const cur = slot.list[slot.i];
+  if (cur?.in && cur?.out) {
+    slot.list[slot.i] = null;
+    return false;
+  }
+  const prev = pts[(k - 1 + pts.length) % pts.length];
+  const next = pts[(k + 1) % pts.length];
+  const dir = sub(next, prev);
+  const l = len(dir) || 1;
+  const reach = Math.min(len(sub(pts[k], prev)), len(sub(next, pts[k]))) * 0.4;
+  const t = mul(dir, reach / l);
+  slot.list[slot.i] = { in: mul(t, -1), out: t };
+  return true;
 }
 
 /** Moves corner `k` of a panel's outline to `to` (in the panel's own frame). */
@@ -839,6 +975,22 @@ export function sanitizeDesign(raw: unknown): AdvancedDesign | null {
   const pts = (v: unknown, max = 500): Vec2[] =>
     Array.isArray(v) ? (v.slice(0, max).map(pt).filter(Boolean) as Vec2[]) : [];
   const holes = (v: unknown) => (Array.isArray(v) ? v.slice(0, 50).map((h) => pts(h)).filter((h) => h.length >= 3) : []);
+  const handles = (v: unknown, n: number): (Handle | null)[] | undefined => {
+    if (!Array.isArray(v)) return undefined;
+    const out = Array.from({ length: n }, (_, i) => {
+      const h = v[i] as Record<string, unknown> | null | undefined;
+      if (!h || typeof h !== 'object') return null;
+      const hin = pt(h.in);
+      const hout = pt(h.out);
+      return hin || hout ? { ...(hin ? { in: hin } : {}), ...(hout ? { out: hout } : {}) } : null;
+    });
+    return out.some(Boolean) ? out : undefined;
+  };
+  const curves = (v: unknown): Bez[] | undefined => {
+    if (!Array.isArray(v)) return undefined;
+    const out = v.slice(0, 200).map((c) => (Array.isArray(c) && c.length === 4 ? c.map(pt) : null)).filter((c): c is Bez => !!c && c.every(Boolean));
+    return out.length ? out : undefined;
+  };
   const faceSpec = (v: unknown): FaceSpec | undefined => {
     if (!v || typeof v !== 'object') return undefined;
     const f = v as Record<string, unknown>;
@@ -851,10 +1003,14 @@ export function sanitizeDesign(raw: unknown): AdvancedDesign | null {
   const baseOf = (v: unknown): BasePanel => {
     const b = (v ?? {}) as Record<string, unknown>;
     const basePts = pts(b.points);
+    const bh = basePts.length >= 3 ? handles(b.handles, basePts.length) : undefined;
+    const hc = curves(b.holeCurves);
     return {
       width: num(b.width, 1, 3000, 100),
       height: num(b.height, 1, 3000, 100),
       ...(basePts.length >= 3 ? { points: basePts } : {}),
+      ...(bh ? { handles: bh } : {}),
+      ...(hc ? { holeCurves: hc } : {}),
       holes: holes(b.holes),
       ...(faceSpec(b.face) ? { face: faceSpec(b.face) } : {}),
     };
@@ -904,9 +1060,11 @@ export function sanitizeDesign(raw: unknown): AdvancedDesign | null {
     if (!item || typeof item !== 'object') continue;
     const p = item as Record<string, unknown>;
     const s = (p.shape ?? {}) as Record<string, unknown>;
+    const cpts = pts(s.points);
+    const ch = handles(s.handles, cpts.length);
     const shape: ChildShape =
       s.type === 'custom'
-        ? { type: 'custom', points: pts(s.points) }
+        ? { type: 'custom', points: cpts, ...(ch ? { handles: ch } : {}) }
         : { type: 'rect', depth: num(s.depth, 0.5, 3000, 20), taper0: num(s.taper0, -3000, 3000, 0), taper1: num(s.taper1, -3000, 3000, 0) };
     if (shape.type === 'custom' && shape.points.length < 1) continue;
     design.panels.push({
@@ -925,6 +1083,7 @@ export function sanitizeDesign(raw: unknown): AdvancedDesign | null {
       ...(keys(p.timeline) ? { timeline: keys(p.timeline) } : {}),
       ...(typeof p.open === 'number' ? { open: num(p.open, -180, 180, 0) } : {}),
       holes: holes(p.holes),
+      ...(curves(p.holeCurves) ? { holeCurves: curves(p.holeCurves) } : {}),
     });
   }
   // Only walls carry other panels (older files may have panels hanging off flaps).

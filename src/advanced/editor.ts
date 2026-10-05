@@ -3,7 +3,7 @@ import type { Dieline, Vec2 } from '../types';
 import { flattenPath, pathData, type PathPoint } from './curves';
 import {
   BASE_ID, deleteVertex, edgeOf, editablePoints, insertVertex, layout, makeChild, moveVertex,
-  canCarry, clone, copySubtree, isRoot, removePiece, rootBase, toSheet, setEdgeLength, flipPanel, mirrorCopy, overlaps, rawPanels, subtree, toLocal, freeSpans,
+  canCarry, clone, copySubtree, cornerHandles, edgeCurved, isRoot, removePiece, rootBase, setHandle, toggleCurve, toSheet, setEdgeLength, flipPanel, mirrorCopy, overlaps, rawPanels, subtree, toLocal, freeSpans,
   type AdvancedDesign, type Placed,
 } from './model';
 
@@ -19,7 +19,8 @@ type Drag =
   | { kind: 'pan'; start: Vec2; view: View }
   | { kind: 'depth' | 'taper0' | 'taper1' | 'width' | 'height'; id: string }
   | { kind: 'vertex'; id: string; index: number }
-  | { kind: 'move'; id: string; grab: Vec2 };
+  | { kind: 'move'; id: string; grab: Vec2 }
+  | { kind: 'hin' | 'hout'; id: string; index: number };
 
 interface PenState {
   parent: string;
@@ -77,6 +78,7 @@ export class Editor {
   private redoStack: string[] = [];
   private lastCheckpoint = { key: '', time: 0 };
   private placed = new Map<string, Placed>();
+  private lastCorner: { id: string; index: number; at: number } | null = null;
 
   constructor(private host: HTMLElement, design: AdvancedDesign) {
     this.design = design;
@@ -437,7 +439,7 @@ export class Editor {
   private panelAt(p: Vec2): string | null {
     // Children are drawn on top, so test them first.
     const list = [...this.placed.values()].reverse();
-    for (const pl of list) if (inPoly(p, pl.poly)) return pl.id;
+    for (const pl of list) if (inPoly(p, pl.shape)) return pl.id;
     return null;
   }
 
@@ -478,8 +480,22 @@ export class Editor {
       this.checkpoint();
       if (kind === 'vertex') {
         const index = +handle.getAttribute('data-index')!;
+        // The SVG is redrawn on each press, so the browser's dblclick never reaches a
+        // corner: a second press on the same corner soon after rounds it (or back).
+        const last = this.lastCorner;
+        this.lastCorner = { id: this.selected, index, at: e.timeStamp };
+        if (last && last.id === this.selected && last.index === index && e.timeStamp - last.at < 400) {
+          this.lastCorner = null;
+          toggleCurve(this.design, this.selected, index);
+          this.changed();
+          return;
+        }
         this.selectedVertex = index;
         this.drag = { kind: 'vertex', id: this.selected, index };
+      } else if (kind === 'hin' || kind === 'hout') {
+        const index = +handle.getAttribute('data-index')!;
+        this.selectedVertex = index;
+        this.drag = { kind, id: this.selected, index };
       } else if (kind === 'move') {
         const pc = this.design.pieces?.find((x) => x.id === this.selected);
         if (pc) this.drag = { kind: 'move', id: pc.id, grab: [p[0] - pc.at[0], p[1] - pc.at[1]] };
@@ -562,8 +578,10 @@ export class Editor {
     if (this.tool !== 'select') return;
     // Double-click a fold angle or a length to type a new value. (The SVG is redrawn on
     // every click, so look up what's under the pointer now.)
-    const label = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-angle],[data-len]');
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const label = under?.closest('[data-angle],[data-len]');
     if (label) return this.editLabel(label);
+    if (under?.closest('[data-handle]')) return; // corners are handled on press
     if (!this.selected) return;
     const p = this.toWorld(e);
     const pl = this.placed.get(this.selected);
@@ -604,6 +622,25 @@ export class Editor {
     }
     const pl = this.placed.get(d.id);
     if (!pl) return;
+    if (d.kind === 'hin' || d.kind === 'hout') {
+      // A curve handle: the other side follows (mirrored) while the corner is smooth,
+      // unless Shift is held.
+      const corner = editablePoints(this.design, d.id)![d.index];
+      const [u, v] = toLocal(pl, this.snapPt(p));
+      const vec: Vec2 = [u - corner[0], v - corner[1]];
+      const side = d.kind === 'hin' ? 'in' : 'out';
+      const other = side === 'in' ? 'out' : 'in';
+      const h = cornerHandles(this.design, d.id, pl.poly.length)[d.index];
+      setHandle(this.design, d.id, d.index, side, vec);
+      const o = h?.[other];
+      if (o && !shift) {
+        const l = Math.hypot(o[0], o[1]);
+        const k = Math.hypot(vec[0], vec[1]) || 1;
+        setHandle(this.design, d.id, d.index, other, [(-vec[0] / k) * l, (-vec[1] / k) * l]);
+      }
+      this.changed();
+      return;
+    }
     const root = rootBase(this.design, d.id);
     if (root) {
       const [u, v] = toLocal(pl, this.snapPt(p));
@@ -792,20 +829,19 @@ export class Editor {
     const along = (q: Vec2) => ((q[0] - a[0]) * (b[0] - a[0]) + (q[1] - a[1]) * (b[1] - a[1])) / L;
     let u0 = along(pen.start);
     let u1 = along(end);
-    // Curves become short straight pieces (the end points sit on the hinge, so drop them).
-    let pts = flattenPath([{ p: pen.start }, ...pen.points, { p: end }]).slice(1, -1);
-    if (u0 > u1) {
-      [u0, u1] = [u1, u0];
-      pts = [...pts].reverse();
-    }
+    // The outline runs from the hinge's end back round to its start; if the drawing went
+    // the other way, reverse it (and its curve handles with it).
+    const reversed = u0 <= u1;
+    if (u0 > u1) [u0, u1] = [u1, u0];
+    const drawn = reversed ? [...pen.points].reverse() : pen.points;
     if (u1 - u0 < 1) {
       this.pen = null;
       this.hint();
       this.render();
       return;
     }
-    // Express the drawn points in the new panel's frame; the outline runs from the hinge's
-    // end back round to its start, so reverse them.
+    // Express the drawn points in the new panel's frame; curves keep their handles, so they
+    // stay editable curves.
     const child = makeChild(this.design, pen.parent, pen.edge, [u0, u1])!;
     const frame: Placed = {
       ...parent,
@@ -813,7 +849,18 @@ export class Editor {
       U: [(b[0] - a[0]) / L, (b[1] - a[1]) / L],
       V: outward(parent, pen.edge),
     };
-    child.shape = { type: 'custom', points: [...pts].reverse().map((q) => toLocal(frame, q)) };
+    const vec = ([x, y]: Vec2): Vec2 => [x * frame.U[0] + y * frame.U[1], x * frame.V[0] + y * frame.V[1]];
+    const handles = drawn.map(({ h }) => {
+      if (!h) return null;
+      const v = vec(h);
+      const back: Vec2 = [-v[0], -v[1]];
+      return reversed ? { in: v, out: back } : { in: back, out: v };
+    });
+    child.shape = {
+      type: 'custom',
+      points: drawn.map(({ p }) => toLocal(frame, p)),
+      ...(handles.some(Boolean) ? { handles } : {}),
+    };
     this.checkpoint();
     this.design.panels.push(child);
     this.pen = null;
@@ -904,7 +951,7 @@ export class Editor {
 
   private hint() {
     const hints: Record<Tool, string> = {
-      select: '+ adds a wall or flap · double-click an angle or length to type it · double-click an edge: add corner · Ctrl+D: duplicate · Ctrl+Z: undo',
+      select: '+ adds a wall or flap · double-click an angle or length to type it · double-click an edge: add corner, a corner: round it · Ctrl+D: duplicate · Ctrl+Z: undo',
       pen: this.pen
         ? 'Click for a corner, drag for a curve, or type a length + Enter. Shift: 15° steps. Click the starting edge to finish. Ctrl+Z: undo a point.'
         : 'Click a free edge of a wall (or the base) to start drawing a flap from it.',
@@ -959,7 +1006,7 @@ export class Editor {
     for (const pl of this.placed.values()) {
       const kind = pl.panel?.kind ?? 'wall';
       const cls = ['pnl', `k-${kind}`, pl.id === this.selected ? 'sel' : '', bad.has(pl.id) ? 'bad' : ''].join(' ');
-      parts.push(`<path class="${cls}" data-panel="${pl.id}" fill-rule="evenodd" d="${pathOf([pl.poly, ...pl.holes])}"/>`);
+      parts.push(`<path class="${cls}" data-panel="${pl.id}" fill-rule="evenodd" d="${pathOf([pl.shape, ...pl.holes])}"/>`);
     }
 
     const { cuts, folds } = this.lines();
@@ -1013,10 +1060,11 @@ export class Editor {
     const pl = this.placed.get(this.selected!);
     if (!pl) return [];
     const out: string[] = [];
+    const hs = cornerHandles(this.design, pl.id, pl.poly.length);
     for (let k = 0; k < pl.poly.length; k++) {
       const [a, b] = edgeOf(pl.poly, k);
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      if (L * this.view.scale < 28) continue;
+      if (L * this.view.scale < 28 || edgeCurved(hs, k)) continue;
       const nrm = outward(pl, k);
       // Inside the panel, clear of the + buttons outside and the handles on the edge. The
       // hinge's label moves along a bit to make room for the fold angle in the middle.
@@ -1077,9 +1125,18 @@ export class Editor {
     }
     if (custom) {
       const pts = editablePoints(this.design, id)!;
+      const hs = cornerHandles(this.design, id, pts.length);
       pts.forEach((q, i) => {
         if (!root && i < 2) return; // hinge corners follow the parent
         const s = toSheet(pl, q);
+        // Curve handles: a line out to each control point, with a dot to drag.
+        for (const side of ['in', 'out'] as const) {
+          const hv = hs[i]?.[side];
+          if (!hv) continue;
+          const e = toSheet(pl, [q[0] + hv[0], q[1] + hv[1]]);
+          out.push(`<path class="curve-handle" d="M${n(s[0])} ${n(s[1])}L${n(e[0])} ${n(e[1])}"/>`);
+          out.push(`<circle class="handle curve" data-handle="h${side}" data-index="${i}" cx="${n(e[0])}" cy="${n(e[1])}" r="${n(px(4))}"/>`);
+        }
         dot(s, 'vertex', `data-index="${i}"`, i === this.selectedVertex ? 'on' : '');
       });
       return out;

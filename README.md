@@ -58,6 +58,7 @@ Draw a box from scratch. You start with a single square (the base, which lies on
 - **Duplicate (Ctrl+D)** copies a panel and everything on it; click a free edge to place the copy (press M to mirror it first). **Mirror copy** puts a mirrored copy at the other end of the same edge, such as a chair's second leg, and **Flip** mirrors a panel where it is.
 - **Tab & slot joints:** where an edge of the selected panel stands on another panel once folded (a divider on a base, say), this adds tabs along that edge and cuts matching slots where they land, so the joint holds without glue.
 - **Free-form shape:** turns any panel, including the base, into editable corners. Drag them, double-click an edge to add a corner, and select a corner and press Delete to remove it.
+- **Curves:** rounded edges (tuck flaps, pen curves, boxes converted from the Simple tab) are splines with handles. Drag a handle dot to reshape the curve; the opposite handle follows to keep the corner smooth, and holding Shift moves one side only. Double-click a corner to round it, and double-click a rounded corner to make it sharp again. Cut files keep curves as real curves (SVG `C` commands, PDF Bézier paths) rather than many short lines.
 - **Undo/redo** with Ctrl+Z and Ctrl+Shift+Z. Tools are at the top left of the design panel; snapping, zoom and Fit at the top right.
 - Panels that would overlap on the sheet are shown in red.
 - Decals go on rectangular walls.

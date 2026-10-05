@@ -100,7 +100,8 @@ export function cutThrough(d: AdvancedDesign, id: string): CutThroughResult {
   }
   if (!shapes.length) return { openings: 0, problem: 'Nothing passes through this panel when folded.' };
 
-  const outline = close(W.poly);
+  // The drawn-out outline (curves as points); if it changes, any curve handles go.
+  const outline = close(W.shape);
   const before: MultiPolygon = [[outline, ...W.holes.map(close)]];
   // Joined footprints. Three or more walls together (a leg, a tube) open up their whole
   // cross-section; one or two (a divider, a cross) keep their own shape.
@@ -122,7 +123,7 @@ export function cutThrough(d: AdvancedDesign, id: string): CutThroughResult {
   // Keep the outline running the same way round as before.
   if (Math.sign(area(close(newOutline))) !== Math.sign(area(outline))) newOutline = newOutline.reverse();
 
-  const changed = newOutline.length !== W.poly.length || newOutline.some((p) => !W.poly.some((q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6));
+  const changed = newOutline.length !== W.shape.length || newOutline.some((p) => !W.shape.some((q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6));
   const openings = regions.length;
 
   const root = rootBase(d, id);
@@ -130,7 +131,10 @@ export function cutThrough(d: AdvancedDesign, id: string): CutThroughResult {
     // A base: its frame is the sheet, moved to where the piece sits.
     const outlineLocal = newOutline.map((q) => toLocal(W, q));
     if (changed && !remapChildren(d, id, basePoly(root), outlineLocal)) return { openings: 0, problem: 'An opening would cut through an edge that has panels attached.' };
-    if (changed) root.points = outlineLocal;
+    if (changed) {
+      root.points = outlineLocal;
+      delete root.handles;
+    }
     root.holes = newHoles.map((h) => h.map((q) => toLocal(W, q)));
     return { openings };
   }
