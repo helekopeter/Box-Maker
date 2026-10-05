@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateDieline } from '../src/geometry/styles';
-import { foldedBounds } from '../src/geometry/fold';
+import { Vector3 } from 'three';
+import { foldedBounds, foldMatrices } from '../src/geometry/fold';
 import { chainSegments, computeLines, dashSegments } from '../src/geometry/lines';
 import type { BoxParams, BoxStyle } from '../src/types';
 
@@ -14,7 +15,7 @@ const base: BoxParams = {
   lidHeight: 30,
   lidClearance: 1,
 };
-const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve', 'mailer', 'matchbox', 'hexagon'];
+const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve', 'mailer', 'matchbox', 'hexagon', 'cigarette'];
 const twoPiece = (s: BoxStyle) => s === 'traylid' || s === 'sleeve' || s === 'matchbox';
 
 describe.each(styles)('%s', (style) => {
@@ -70,11 +71,22 @@ describe.each(styles)('%s', (style) => {
     expect(folds.reduce((n, f) => n + len(f.a, f.b), 0)).toBeCloseTo(hingeLen, 3);
     const chains = chainSegments(cuts);
     const holes = d.panels.reduce((n, x) => n + (x.holes?.length ?? 0), 0);
-    expect(chains.length).toBe(d.pieces.length + holes);
-    for (const c of chains) {
-      const a = c[0];
-      const b = c[c.length - 1];
-      expect(Math.hypot(a[0] - b[0], a[1] - b[1])).toBeLessThan(1e-3);
+    const closed = (c: number[][]) => Math.hypot(c[0][0] - c[c.length - 1][0], c[0][1] - c[c.length - 1][1]) < 1e-3;
+    if (chains.every(closed)) {
+      expect(chains.length).toBe(d.pieces.length + holes);
+    } else {
+      // A cut inside a piece (like a flip-top lid's) runs from the outline to a fold or
+      // another cut: every loose end meets another line.
+      expect(chains.length).toBeGreaterThan(d.pieces.length + holes);
+      const onSegment = (a: number[], b: number[], p: number[]) => {
+        const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+        const k = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+        return Math.hypot(a[0] + k * dx - p[0], a[1] + k * dy - p[1]) < 1e-3;
+      };
+      const meets = (c: number[][], end: number[]) =>
+        folds.some((f) => onSegment(f.a, f.b, end)) ||
+        chains.some((o) => o.some((q, i) => i > 0 && (o !== c || (i > 1 && i < o.length - 1)) && onSegment(o[i - 1], q, end)));
+      for (const c of chains.filter((c) => !closed(c))) for (const end of [c[0], c[c.length - 1]]) expect(meets(c, end)).toBe(true);
     }
   });
 });
@@ -140,5 +152,33 @@ describe('dashSegments', () => {
     expect(dashes.length).toBe(4);
     expect(dashes[0].a[0]).toBeGreaterThan(0);
     expect(dashes[dashes.length - 1].b[0]).toBeLessThan(30);
+  });
+});
+
+describe('cigarette', () => {
+  const d = generateDieline({ ...base, style: 'cigarette' });
+  it('has a lid cut across the front and sides, hinged at the back', () => {
+    const lidBack = d.panels.find((x) => x.id === 'lid-back')!;
+    expect(lidBack.parent).toBe('back');
+    expect(lidBack.open).toBeLessThan(0);
+    // Closed at the end of the animation, folded flat at the start.
+    expect(lidBack.timeline![0][1]).toBe(0);
+    expect(lidBack.timeline![lidBack.timeline!.length - 1][1]).toBe(0);
+    expect(d.panels.find((x) => x.id === 'lid-front')!.parent).toBe('lid-right');
+  });
+
+  it('glues the collar inside the front, standing up into the lid', () => {
+    const t = base.thickness;
+    const shell = foldedBounds(d, 1, { thickness: t }, 0);
+    const collar = foldedBounds(d, 1, { thickness: t }, 1);
+    // Inside the shell, behind the front, and reaching above the body (into the lid).
+    expect(collar.min.x).toBeGreaterThan(shell.min.x);
+    expect(collar.max.x).toBeLessThan(shell.max.x);
+    expect(collar.max.y).toBeLessThan(shell.max.y);
+    // Its top is above the bottom edge of the lid's front.
+    const m = foldMatrices(d, 1, { thickness: t }).get('lid-front')!;
+    const lidBottom = Math.min(...d.panels.find((x) => x.id === 'lid-front')!.poly.map(([x, y]) => new Vector3(x, -y, 0).applyMatrix4(m).y));
+    expect(collar.max.y).toBeGreaterThan(lidBottom + 1);
+    expect(collar.max.z).toBeLessThan(shell.max.z);
   });
 });

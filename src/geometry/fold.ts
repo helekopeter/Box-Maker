@@ -26,10 +26,24 @@ export function panelProgress(panel: Panel, progress: number, stages: number): n
 
 /** Fold angle (deg) of a panel at overall progress p, following its keyframes if it has any. */
 export function panelAngle(panel: Panel, progress: number, stages: number): number {
+  if (panel.timeline) return keyframes(panel.timeline, progress);
   const keys = panel.motion;
   if (!keys) return (panel.angle ?? 90) * panelProgress(panel, progress, stages);
   const t = stageTime(panel, progress, stages);
   let prev: [number, number] = [0, 0];
+  for (const k of keys) {
+    if (t <= k[0]) {
+      const span = k[0] - prev[0];
+      return prev[1] + (k[1] - prev[1]) * (span > 0 ? (t - prev[0]) / span : 1);
+    }
+    prev = k;
+  }
+  return prev[1];
+}
+
+/** Linear interpolation through [time, value] keyframes. */
+function keyframes(keys: [number, number][], t: number): number {
+  let prev = keys[0];
   for (const k of keys) {
     if (t <= k[0]) {
       const span = k[0] - prev[0];
@@ -55,7 +69,7 @@ function foldSign(p: Panel): number {
 }
 
 /** Hinge transforms of every panel relative to its piece root (no layering offset). At progress 1 this is the assembled box. */
-export function localMatrices(d: Dieline, progress: number): Map<string, Matrix4> {
+export function localMatrices(d: Dieline, progress: number, open = 0): Map<string, Matrix4> {
   const stages = maxStage(d);
   const byId = new Map(d.panels.map((p) => [p.id, p]));
   const out = new Map<string, Matrix4>();
@@ -68,7 +82,7 @@ export function localMatrices(d: Dieline, progress: number): Map<string, Matrix4
       if (!parent) throw new Error(`Unknown parent ${p.parent}`);
       const a = to3(p.hinge[0]);
       const axis = to3(p.hinge[1]).sub(a).normalize();
-      const angle = MathUtils.degToRad(panelAngle(p, progress, stages)) * foldSign(p);
+      const angle = MathUtils.degToRad(panelAngle(p, progress, stages) + (p.open ?? 0) * open) * foldSign(p);
       m = resolve(parent)
         .clone()
         .multiply(new Matrix4().makeTranslation(a.x, a.y, a.z))
@@ -111,6 +125,8 @@ export interface FoldOptions {
   thickness: number;
   /** Extra height of the lid above the base, in mm. */
   lidLift?: number;
+  /** How far hinged lids are opened, 0..1 (see Panel.open). */
+  open?: number;
 }
 
 /**
@@ -120,8 +136,9 @@ export interface FoldOptions {
  */
 export function foldMatrices(d: Dieline, progress: number, opts: FoldOptions): Map<string, Matrix4> {
   const t = opts.thickness;
-  const local = localMatrices(d, progress);
-  const finalLocal = progress === 1 ? local : localMatrices(d, 1);
+  const open = opts.open ?? 0;
+  const local = localMatrices(d, progress, open);
+  const finalLocal = progress === 1 && !open ? local : localMatrices(d, 1);
 
   const byId = new Map(d.panels.map((p) => [p.id, p]));
   // Each piece rotates about the centre of its root panel.
@@ -145,6 +162,7 @@ export function foldMatrices(d: Dieline, progress: number, opts: FoldOptions): M
   let baseTop = 0;
   const sorted = [...d.pieces].sort((a, b) => (a.role === 'base' ? -1 : 1) - (b.role === 'base' ? -1 : 1));
   for (const pc of sorted) {
+    if (pc.role === 'insert') continue;
     const box = bounds(d, finalLocal, t, pre(pieceQuat(pc.rotation), pc.index), pc.index);
     const cx = -(box.min.x + box.max.x) / 2;
     const cz = -(box.min.z + box.max.z) / 2;
@@ -161,11 +179,31 @@ export function foldMatrices(d: Dieline, progress: number, opts: FoldOptions): M
     }
   }
 
-  // Move from flat to final placement during the first part of the fold.
-  const w = ease(MathUtils.clamp(progress / 0.35, 0, 1));
+  // Inserts: glued against a panel of the base, wherever that ends up.
+  const finalQuat = new Map(d.pieces.map((pc) => [pc.index, pieceQuat(pc.rotation)]));
+  const base = d.pieces.find((pc) => pc.role === 'base') ?? d.pieces[0];
+  for (const pc of d.pieces) {
+    if (pc.role !== 'insert' || !pc.place) continue;
+    const { anchor, from, to, z } = pc.place;
+    const world = new Matrix4()
+      .makeTranslation(finalPos.get(base.index)!)
+      .multiply(pre(finalQuat.get(base.index)!, base.index))
+      .multiply(finalLocal.get(anchor)!)
+      .multiply(new Matrix4().makeTranslation(to3(to).sub(to3(from)).setZ(z)));
+    const p = new Vector3();
+    const q = new Quaternion();
+    world.decompose(p, q, new Vector3());
+    finalQuat.set(pc.index, q);
+    finalPos.set(pc.index, p.add(rootCentre.get(pc.index)!.clone().applyQuaternion(q)));
+  }
+
+  // Move from flat to final placement during the first part of the fold (inserts when
+  // they're due).
   const pieceMats = new Map<number, Matrix4>();
   for (const pc of d.pieces) {
-    const q = FLAT.clone().slerp(pieceQuat(pc.rotation), w);
+    const [a0, a1] = pc.role === 'insert' && pc.place ? pc.place.arrive : [0, 0.35];
+    const w = ease(MathUtils.clamp((progress - a0) / (a1 - a0), 0, 1));
+    const q = FLAT.clone().slerp(finalQuat.get(pc.index)!, w);
     const start = flatPos.clone().add(rootCentre.get(pc.index)!.clone().applyQuaternion(FLAT));
     const pos = start.lerp(finalPos.get(pc.index)!, w);
     // Lift second pieces clear of the base while they turn over.

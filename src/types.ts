@@ -15,6 +15,7 @@ export type BoxStyle =
   | 'mailer'
   | 'matchbox'
   | 'hexagon'
+  | 'cigarette'
   | 'shape';
 
 export interface BoxParams {
@@ -62,6 +63,13 @@ export interface Panel {
    */
   motion?: [number, number][];
   /**
+   * Fold path over the whole animation instead: [overall progress 0..1, angle] keyframes,
+   * e.g. a lid that swings open early on and closes again at the end. Overrides the rest.
+   */
+  timeline?: [number, number][];
+  /** Extra angle (deg) when the lid is opened with the preview's lid control (hinged lids). */
+  open?: number;
+  /**
    * Layering nudge applied when folded, in multiples of the material thickness
    * along the panel's outside normal. Keeps overlapping flaps from z-fighting.
    */
@@ -83,8 +91,18 @@ export interface PieceInfo {
   root: string;
   /** Final orientation of the root panel as Euler angles in degrees (XYZ). */
   rotation: [number, number, number];
-  /** base: stands on the ground. lid: sits on top of the base. sleeve: slides over the base. */
-  role: 'base' | 'lid' | 'sleeve';
+  /**
+   * base: stands on the ground. lid: sits on top of the base. sleeve: slides over the base.
+   * insert: glued inside the base (see `place`).
+   */
+  role: 'base' | 'lid' | 'sleeve' | 'insert';
+  /**
+   * Insert only: where it goes once assembled. The sheet point `from` on this piece's root
+   * lands on the sheet point `to` of panel `anchor` (of the base), `z` mm along that
+   * panel's outside normal (negative: inside). Both panels must face the same way on the
+   * sheet. It moves into place between overall progress `arrive[0]` and `arrive[1]`.
+   */
+  place?: { anchor: string; from: Vec2; to: Vec2; z: number; arrive: [number, number] };
 }
 
 export interface Dieline {

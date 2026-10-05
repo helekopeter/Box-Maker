@@ -113,6 +113,7 @@ export const STYLE_ICONS: Record<BoxStyle, string> = {
   mailer: '<path d="M6 40 30 32l28 8v8L34 58 6 50z"/><path d="M6 40l28 10 24-10M34 50v8" class="l"/><path d="M6 40 30 32l4-24L10 16z"/><path d="M10 16l24-8 1-5-24 8z" class="l"/>',
   matchbox: '<path d="M4 34 26 26l34 10v10L38 54 4 44z"/><path d="M4 34l34 10 22-8M38 44v10" class="l"/><path d="M16 22l22-8 12 4v14L28 40 16 36z"/><path d="M16 22l12 4 22-8M28 26v14" class="l"/><path d="M24 23.5a5 3 0 0 0 9 2" class="l"/>',
   hexagon: '<path d="M14 18l9-6h18l9 6-9 6H23zM14 18v26l9 6h18l9-6V18"/><path d="M23 24v26M41 24v26M14 18l9 6h18l9-6" class="l"/>',
+  cigarette: '<path d="M18 22 34 16l12 6v34l-16 6-12-6z"/><path d="M18 22l16 6 12-6M34 28v34M18 30l16 6 12-6" class="l"/><path d="M18 22 30 4l16 6-12 6" /><path d="M22 23v-6l14 5" class="l"/>',
   sleeve: '<path d="M4 34 26 26l34 10v10L38 54 4 44z"/><path d="M4 34l34 10 22-8M38 44v10" class="l"/><path d="M16 22l22-8 12 4v14L28 40 16 36z"/><path d="M16 22l12 4 22-8M28 26v14" class="l"/>',
 };
 
@@ -208,7 +209,7 @@ export class SimpleTab {
     const twoPiece = p.style === 'traylid' || sliding;
     $('#lid-opts').hidden = !twoPiece;
     $('#lid-height-row').hidden = p.style !== 'traylid';
-    $('#lift-wrap').hidden = !twoPiece;
+    $('#lift-wrap').hidden = !twoPiece && p.style !== 'cigarette';
     $('#lift-label').textContent = sliding ? 'Slide' : 'Lid';
     // A hexagon has one width: across its flat sides.
     const hex = p.style === 'hexagon';
@@ -437,8 +438,11 @@ export class SimpleTab {
   private applyLift() {
     const v = parseFloat($<HTMLInputElement>('#lift').value);
     const [L, , H] = this.dieline.outer;
-    const sliding = this.state.params.style === 'sleeve' || this.state.params.style === 'matchbox';
-    this.preview.setLidLift(sliding ? v * L * 1.05 : v * H * 1.2);
+    const style = this.state.params.style;
+    const sliding = style === 'sleeve' || style === 'matchbox';
+    // A flip-top lid swings open on its hinge instead of lifting off.
+    this.preview.setLidOpen(style === 'cigarette' ? v : 0);
+    this.preview.setLidLift(style === 'cigarette' ? 0 : sliding ? v * L * 1.05 : v * H * 1.2);
   }
 
   setFold(p: number) {

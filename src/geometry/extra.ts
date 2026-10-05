@@ -238,3 +238,121 @@ export function hexBox(p: BoxParams): Dieline {
     outer: [2 * s, 2 * a, H],
   };
 }
+
+/**
+ * A seal-end closure across the top (dir -1, towards negative y) or bottom (dir +1) edge
+ * y = edge of four walls: side flaps fold in, the back flap is glued over them, and the
+ * panel on the front closes it.
+ */
+function sealClosure(panels: Panel[], faces: Face[], walls: { front: string; right: string; back: string; left: string }, x: Record<'front' | 'right' | 'back' | 'left', number>, L: number, W: number, edge: number, dir: 1 | -1, name: string) {
+  const at = (px: number, v: number): Vec2 => [px, edge + dir * v];
+  const Dm = Math.min(W * 0.5, L * 0.45);
+  const s = Math.min(Dm * 0.4, W * 0.15);
+  for (const side of ['right', 'left'] as const) {
+    const x0 = x[side];
+    panels.push({
+      id: `${walls[side]}-${name}`, piece: 0, kind: 'flap', poly: [at(x0, 0), at(x0 + s, Dm), at(x0 + W - s, Dm), at(x0 + W, 0)],
+      parent: walls[side], hinge: [at(x0, 0), at(x0 + W, 0)], angle: 90, stage: 2, offset: -2,
+    });
+  }
+  const xb = x.back;
+  panels.push({
+    id: `${walls.back}-${name}`, piece: 0, kind: 'glue', poly: [at(xb, 0), at(xb + L, 0), at(xb + L, W), at(xb, W)],
+    parent: walls.back, hinge: [at(xb, 0), at(xb + L, 0)], angle: 90, stage: 3, offset: -1,
+  });
+  const lid = [at(0, 0), at(L, 0), at(L, W), at(0, W)];
+  panels.push({ id: name, piece: 0, kind: 'face', poly: lid, parent: walls.front, hinge: [at(0, 0), at(L, 0)], angle: 90, stage: 4 });
+  faces.push({ id: name, label: name === 'top' ? 'Top' : 'Bottom', rect: bounds(lid), rotation: 0 });
+}
+
+/**
+ * Cigarette box (hinge-lid / flip-top pack): a glued carton cut across near the top, so the
+ * top part opens as a lid on a fold at the back, plus an inner collar glued inside the
+ * front that stands up above the cut and holds the lid shut.
+ */
+export function cigarette(p: BoxParams): Dieline {
+  const t = p.thickness;
+  const L = p.length + t;
+  const W = p.width + t;
+  const H = p.height + 2 * t;
+  const Hl = Math.min(Math.max(H * 0.27, 10), H * 0.45); // lid height
+  const Hb = H - Hl;
+  const g = Math.min(p.glueTab, L * 0.4, W * 0.9);
+  const x = { front: 0, right: L, back: L + W, left: 2 * L + W };
+  const panels: Panel[] = [];
+  const faces: Face[] = [];
+  // Two rows of four walls joined by a glue seam: the lid (y 0..Hl) above the body (Hl..H).
+  // Only the back walls are joined by a fold; the rest is cut apart.
+  const ring = (prefix: string, y0: number, h: number, root: 'front' | 'back', label: string) => {
+    const id = (w: string) => prefix + w;
+    const order = root === 'front' ? (['front', 'right', 'back', 'left'] as const) : (['back', 'right', 'front', 'left'] as const);
+    // Each wall hangs off the previous one in the chain (the lid's chain starts at the back).
+    const parentOf: Record<string, string | null> =
+      root === 'front' ? { front: null, right: 'front', back: 'right', left: 'back' } : { back: null, right: 'back', front: 'right', left: 'back' };
+    for (const w of order) {
+      const wid = w === 'front' || w === 'back' ? L : W;
+      const par = parentOf[w];
+      // The hinge is the edge shared with the parent.
+      const hx = par === null ? 0 : Math.max(x[w], x[par as keyof typeof x]);
+      panels.push({
+        id: id(w), piece: 0, kind: 'face', poly: rect(x[w], y0, wid, h),
+        ...(par ? { parent: id(par), hinge: [[hx, y0], [hx, y0 + h]] as [Vec2, Vec2], angle: 90, stage: 1 } : {}),
+      });
+      faces.push({ id: id(w), label: `${label}${w[0].toUpperCase()}${w.slice(1)}`, rect: { x: x[w], y: y0, w: wid, h }, rotation: 0 });
+    }
+    // The glue tab stops short of the closure end (the lid's top, the body's bottom).
+    const ge = 2 * L + 2 * W;
+    const [g0, g1] = root === 'back' ? [y0 + t + 0.5, y0 + h] : [y0, y0 + h - t - 0.5];
+    panels.push({
+      id: id('glue'), piece: 0, kind: 'glue', poly: glueTabPoly(ge, g0, g1, g, 1),
+      parent: id('left'), hinge: [[ge, g0], [ge, g1]], angle: 90, stage: 1, offset: -1,
+    });
+  };
+  ring('', Hl, Hb, 'front', '');
+  ring('lid-', 0, Hl, 'back', 'Lid ');
+  // The lid's back is folded to the body's back: it swings open after the walls are up so
+  // the collar can go in, and closes again at the end.
+  const lidBack = panels.find((q) => q.id === 'lid-back')!;
+  Object.assign(lidBack, {
+    parent: 'back', hinge: [[x.back, Hl], [x.back + L, Hl]] as [Vec2, Vec2], angle: 0, open: -115,
+    timeline: [[0, 0], [0.28, 0], [0.42, -115], [0.86, -115], [1, 0]] as [number, number][],
+  });
+  sealClosure(panels, faces, { front: 'lid-front', right: 'lid-right', back: 'lid-back', left: 'lid-left' }, x, L, W, 0, -1, 'top');
+  sealClosure(panels, faces, { front: 'front', right: 'right', back: 'back', left: 'left' }, x, L, W, H, 1, 'bottom');
+
+  // The collar: a front with a finger dip and two sides, glued inside the body's front and
+  // sticking up into the lid.
+  const P = Math.min(Hl * 0.45, 12); // how far it stands up above the cut
+  const Hc = P + Math.min(Hb * 0.5, 40);
+  const Lc = L - 2 * t - 0.4;
+  const Ds = Math.min(W * 0.45, 25);
+  const cx = 2 * L + 2 * W + g + 10 + Ds;
+  const cy = Hl - P;
+  const r = Math.min(Lc * 0.18, P * 0.8);
+  const mid = cx + Lc / 2;
+  panels.push({
+    id: 'collar', piece: 1, kind: 'face',
+    poly: [[cx, cy], [mid - r, cy], ...arc(mid, cy, r, Math.PI, 0, 10), [cx + Lc, cy], [cx + Lc, cy + Hc], [cx, cy + Hc]],
+  });
+  const drop = Math.min(P * 0.6, Hc * 0.3); // sides slope down towards the back
+  panels.push({
+    id: 'collar-left', piece: 1, kind: 'glue', poly: [[cx, cy], [cx - Ds, cy + drop], [cx - Ds, cy + Hc], [cx, cy + Hc]],
+    parent: 'collar', hinge: [[cx, cy], [cx, cy + Hc]], angle: 90, stage: 1,
+  });
+  panels.push({
+    id: 'collar-right', piece: 1, kind: 'glue', poly: [[cx + Lc, cy], [cx + Lc, cy + Hc], [cx + Lc + Ds, cy + Hc], [cx + Lc + Ds, cy + drop]],
+    parent: 'collar', hinge: [[cx + Lc, cy], [cx + Lc, cy + Hc]], angle: 90, stage: 1,
+  });
+  return {
+    panels, faces,
+    pieces: [
+      { index: 0, root: 'front', rotation: [0, 0, 0], role: 'base' },
+      {
+        index: 1, root: 'collar', rotation: [0, 0, 0], role: 'insert',
+        place: { anchor: 'front', from: [cx, cy], to: [(L - Lc) / 2, cy], z: -t, arrive: [0.44, 0.7] },
+      },
+    ],
+    width: 0, height: 0,
+    outer: [L + t, W + t, H],
+  };
+}

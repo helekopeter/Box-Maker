@@ -36,6 +36,7 @@ export class BoxPreview {
   private thickness = 3;
   private progress = 1;
   private lidLift = 0;
+  private lidOpen = 0;
   private needsRender = true;
   private animation: { from: number; to: number; start: number; dur: number; done?: () => void } | null = null;
   onProgress: (p: number) => void = () => {};
@@ -188,6 +189,12 @@ export class BoxPreview {
     this.updatePose();
   }
 
+  /** Opens hinged lids (0 closed … 1 fully open). */
+  setLidOpen(f: number) {
+    this.lidOpen = f;
+    this.updatePose();
+  }
+
   animateTo(to: number, dur = 2200, done?: () => void) {
     this.animation = { from: this.progress, to, start: performance.now(), dur: dur * Math.abs(to - this.progress), done };
   }
@@ -198,7 +205,7 @@ export class BoxPreview {
 
   private updatePose() {
     if (!this.dieline) return;
-    const mats = foldMatrices(this.dieline, this.progress, { thickness: this.thickness, lidLift: this.lidLift });
+    const mats = foldMatrices(this.dieline, this.progress, { thickness: this.thickness, lidLift: this.lidLift, open: this.lidOpen });
     for (const [id, m] of mats) {
       const mesh = this.meshes.get(id);
       if (mesh) mesh.matrix.copy(m);
@@ -288,16 +295,16 @@ export class BoxPreview {
 
   /** A picture of the finished box (folded, lid on), even if it's mid-animation right now. */
   snapshot(): string {
-    const [progress, lift] = [this.progress, this.lidLift];
-    const moved = progress !== 1 || lift !== 0;
+    const [progress, lift, open] = [this.progress, this.lidLift, this.lidOpen];
+    const moved = progress !== 1 || lift !== 0 || open !== 0;
     if (moved) {
-      [this.progress, this.lidLift] = [1, 0];
+      [this.progress, this.lidLift, this.lidOpen] = [1, 0, 0];
       this.updatePose();
     }
     this.renderer.render(this.scene, this.camera);
     const url = this.renderer.domElement.toDataURL('image/png');
     if (moved) {
-      [this.progress, this.lidLift] = [progress, lift];
+      [this.progress, this.lidLift, this.lidOpen] = [progress, lift, open];
       this.updatePose();
     }
     return url;

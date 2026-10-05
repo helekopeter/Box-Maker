@@ -18,6 +18,7 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
    - Pizza box (one-piece FEFCO 0427 style mailer, no glue: double side walls lock the corners, the lid tucks in at the front)
    - Matchbox (a glue-free double-walled drawer in a sleeve, with thumb notches at both ends)
    - Hexagonal gift box (six walls with hexagonal tuck lids; *Across* is the inside width across the flat sides)
+   - Cigarette box (flip-top pack: the lid opens on a fold at the back and closes over an inner collar, a second piece glued inside the front; open it with the Lid slider)
    - **Shape Builder** (the big card at the end): design your own shape instead (see below)
 2. **Enter the inside dimensions** (mm or inches) and pick the material: paper, thin card, cardboard, grey board, corrugated or double wall, or a custom thickness. Panels are enlarged automatically to make room for the material.
 3. **Choose a colour, a texture and decals** (text or uploaded images). For a texture, download the **Template PDF** (the sheet at its real size, with the cut and fold lines and each side's name written the right way up), paint over it in Photoshop or any image editor, keep the page size, save it as PNG or JPG and **Import** it. It shows on the 3D box and goes into the artwork of the export. If you change the box's size afterwards it's stretched to fit, and you get a warning. Decals: Drag them around on the 3D box. A decal that hangs over an edge wraps onto the next side like a sticker. If the two sides aren't next to each other on the flat sheet (across the glue seam, a lid edge, or the two top flaps), it is split automatically in the cut file.
@@ -133,7 +134,7 @@ The project uses Vite, TypeScript and three.js, with jsPDF for PDF export (loade
 
 - `src/geometry/styles.ts`: dieline generators. Each box is a tree of panels joined by hinges.
 - `src/geometry/cartons.ts`: folding cartons, built from a four-wall body plus a closure at each end (tuck, seal, snap-lock, auto-lock, gable).
-- `src/geometry/extra.ts`: the pizza box, matchbox and hexagonal gift box (the first two share a glue-free double-walled tray).
+- `src/geometry/extra.ts`: the pizza box, matchbox, hexagonal gift box and cigarette box (the first two share a glue-free double-walled tray).
 - `src/geometry/fold.ts`: turns that tree into 3D transforms for any fold progress.
 - `src/geometry/lines.ts`: derives cut and fold lines from the panels.
 - `src/main.ts`: the tab shell. `src/simple.ts` is the Simple tab, `src/advanced/` the editor (`model.ts` is the design format, `convert.ts` converts Simple boxes, `editor.ts` is the 2D editor), and `src/universe/` the gallery and its storage.
