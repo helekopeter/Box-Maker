@@ -3,12 +3,27 @@ import { faceFrame, faceSize, renderArtwork } from '../artwork';
 import { apply } from '../geometry/surface';
 import { chainSegments, computeLines, dashSegments, type Segment } from '../geometry/lines';
 import type { Appearance, Dieline, ExportOptions, Vec2 } from '../types';
+import { curvesOf, restartLoop, stepsOf } from './curves';
 import { COLORS } from './svg';
 
 const hex = (c: string): [number, number, number] => {
   const v = parseInt(c.slice(1), 16);
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 };
+
+/** A cut line, with real curves where the dieline has them. */
+function drawPath(doc: jsPDF, chain: Vec2[], closed: boolean, curves: ReturnType<typeof curvesOf>) {
+  if (chain.length < 2) return;
+  const pts = closed ? restartLoop(chain, curves) : chain;
+  let at = pts[0];
+  const ops = stepsOf(pts, curves).map(({ p, c }) => {
+    const rel = (q: Vec2) => [q[0] - at[0], q[1] - at[1]];
+    const op = c ? [...rel(c[0]), ...rel(c[1]), ...rel(p)] : rel(p);
+    at = p;
+    return op;
+  });
+  doc.lines(ops, pts[0][0], pts[0][1], [1, 1], 'S', closed);
+}
 
 function drawPoly(doc: jsPDF, poly: Vec2[], style: 'S' | 'F', closed: boolean) {
   if (poly.length < 2) return;
@@ -83,11 +98,11 @@ export async function buildTemplatePdf(d: Dieline, look: Appearance): Promise<Bl
   drawSegments(doc, folds);
   doc.setLineDashPattern([], 0);
   doc.setDrawColor(...hex(COLORS.cut));
+  const curves = curvesOf(d);
   for (const c of chainSegments(cuts)) {
     const first = c[0];
     const last = c[c.length - 1];
-    const closed = c.length > 2 && Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-3;
-    drawPoly(doc, closed ? c.slice(0, -1) : c, 'S', closed);
+    drawPath(doc, c, c.length > 2 && Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-3, curves);
   }
   doc.setFontSize(2.4 / 0.3528);
   doc.setTextColor(140, 140, 140);
@@ -143,10 +158,11 @@ async function drawPage(doc: jsPDF, d: Dieline, look: Appearance, opts: ExportOp
   }
 
   doc.setDrawColor(...hex(COLORS.cut));
+  const curves = curvesOf(d);
   for (const c of chainSegments(cuts)) {
     const first = c[0];
     const last = c[c.length - 1];
     const closed = c.length > 2 && Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-3;
-    drawPoly(doc, closed ? c.slice(0, -1) : c, 'S', closed);
+    drawPath(doc, c, closed, curves);
   }
 }

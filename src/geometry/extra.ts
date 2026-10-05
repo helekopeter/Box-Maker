@@ -1,6 +1,6 @@
-import type { BoxParams, Dieline, Face, Panel, Vec2 } from '../types';
+import type { BoxParams, Bez, Dieline, Face, Panel, Vec2 } from '../types';
 import { tuckMotion } from './cartons';
-import { arc, bounds, glueTabPoly, rect } from './shapes';
+import { arcCurve, bounds, glueTabPoly, mapCurve, rect } from './shapes';
 
 /**
  * A tray with double side walls and no glue: the front and back walls carry corner ears
@@ -99,12 +99,12 @@ export function mailer(p: BoxParams): Dieline {
   const tx0 = X0 + i;
   const tx1 = X0 + L - i;
   const motion = tuckMotion(W, T, t);
+  const c0 = arcCurve(tx0 + R, yf + T - R, R, Math.PI, Math.PI / 2);
+  const c1 = arcCurve(tx1 - R, yf + T - R, R, Math.PI / 2, 0);
   panels.push({
     id: 'lid-tuck', piece: 0, kind: 'flap',
-    poly: [
-      [tx0, yf], [tx0, yf + T - R], ...arc(tx0 + R, yf + T - R, R, Math.PI, Math.PI / 2),
-      [tx1 - R, yf + T], ...arc(tx1 - R, yf + T - R, R, Math.PI / 2, 0), [tx1, yf],
-    ],
+    poly: [[tx0, yf], [tx0, yf + T - R], ...c0.pts, [tx1 - R, yf + T], ...c1.pts, [tx1, yf]],
+    curves: [...c0.bez, ...c1.bez],
     parent: 'lid', hinge: [[tx0, yf], [tx1, yf]], stage: 7, offset: -1, motion: motion.keys,
   });
   return {
@@ -116,16 +116,15 @@ export function mailer(p: BoxParams): Dieline {
 }
 
 /** Thumb notches (half circles) cut into both open ends of a sleeve panel. */
-function notch(poly: Vec2[], r: number): Vec2[] {
+function notch(poly: Vec2[], r: number): { poly: Vec2[]; curves: Bez[] } {
   const [[x0, y0], [x1], , [, y1]] = poly;
   const cx = (x0 + x1) / 2;
-  return [
-    [x0, y0],
-    [cx - r, y0], ...arc(cx, y0, r, Math.PI, 0, 10),
-    [x1, y0], [x1, y1],
-    [cx + r, y1], ...arc(cx, y1, r, 0, -Math.PI, 10),
-    [x0, y1],
-  ];
+  const top = arcCurve(cx, y0, r, Math.PI, 0);
+  const bottom = arcCurve(cx, y1, r, 0, -Math.PI);
+  return {
+    poly: [[x0, y0], [cx - r, y0], ...top.pts, [x1, y0], [x1, y1], [cx + r, y1], ...bottom.pts, [x0, y1]],
+    curves: [...top.bez, ...bottom.bez],
+  };
 }
 
 /**
@@ -141,7 +140,7 @@ export function matchbox(p: BoxParams, sleevePiece: SleeveBuilder, shift: Shifte
   const r = Math.min((W + 2 * c) * 0.18, L * 0.2, 14);
   for (const id of p.notches === false ? [] : ['sleeve-top', 'sleeve-bottom']) {
     const panel = sl.panels.find((q) => q.id === id)!;
-    panel.poly = notch(panel.poly, r);
+    Object.assign(panel, notch(panel.poly, r));
   }
   const all = tr.panels.flatMap((q) => q.poly);
   const right = Math.max(...all.map((q) => q[0]));
@@ -214,12 +213,12 @@ export function hexBox(p: BoxParams): Dieline {
     const tx0 = i;
     const tx1 = s - i;
     const y = 2 * a;
+    const c0 = mapCurve(arcCurve(tx1 - R, y + T - R, R, 0, Math.PI / 2), ([x, v]) => at(x, v));
+    const c1 = mapCurve(arcCurve(tx0 + R, y + T - R, R, Math.PI / 2, Math.PI), ([x, v]) => at(x, v));
     panels.push({
       id: `${name}-tuck`, piece: 0, kind: 'flap',
-      poly: [
-        at(tx1, y), at(tx1, y + T - R), ...arc(tx1 - R, y + T - R, R, 0, Math.PI / 2).map(([x, v]) => at(x, v)),
-        at(tx0 + R, y + T), ...arc(tx0 + R, y + T - R, R, Math.PI / 2, Math.PI).map(([x, v]) => at(x, v)), at(tx0, y),
-      ],
+      poly: [at(tx1, y), at(tx1, y + T - R), ...c0.pts, at(tx0 + R, y + T), ...c1.pts, at(tx0, y)],
+      curves: [...c0.bez, ...c1.bez],
       parent: name, hinge: [at(tx1, y), at(tx0, y)], stage: 3, offset: -1, motion: motion.keys,
     });
     // Dust flaps on the walls either side of the first: hexagon sectors, so they lie side
@@ -334,9 +333,11 @@ export function cigarette(p: BoxParams): Dieline {
   const cy = Hl - P;
   const r = Math.min(Lc * 0.18, P * 0.8);
   const mid = cx + Lc / 2;
+  const dip = arcCurve(mid, cy, r, Math.PI, 0);
   panels.push({
     id: 'collar', piece: 1, kind: 'face',
-    poly: [[cx, cy], [mid - r, cy], ...arc(mid, cy, r, Math.PI, 0, 10), [cx + Lc, cy], [cx + Lc, cy + Hc], [cx, cy + Hc]],
+    poly: [[cx, cy], [mid - r, cy], ...dip.pts, [cx + Lc, cy], [cx + Lc, cy + Hc], [cx, cy + Hc]],
+    curves: dip.bez,
   });
   const drop = Math.min(P * 0.6, Hc * 0.3); // sides slope down towards the back
   panels.push({

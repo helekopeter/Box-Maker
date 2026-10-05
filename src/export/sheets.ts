@@ -1,5 +1,5 @@
 import { MARGIN } from '../geometry/styles';
-import type { Appearance, Dieline, Face, Panel, Texture, Vec2 } from '../types';
+import type { Appearance, Bez, Dieline, Face, Panel, Texture, Vec2 } from '../types';
 
 /** Where one piece of one copy goes on a sheet. */
 interface Placement {
@@ -152,6 +152,7 @@ export function layoutCopies(d: Dieline, look: Appearance, copies: number, bed: 
           ...(p.holes ? { holes: p.holes.map((h) => h.map(tf)) } : {}),
           ...(p.hinge ? { hinge: [tf(p.hinge[0]), tf(p.hinge[1])] as [Vec2, Vec2] } : {}),
           ...(p.creases ? { creases: p.creases.map(([a, b]) => [tf(a), tf(b)] as [Vec2, Vec2]) } : {}),
+          ...(p.curves ? { curves: p.curves.map((c) => c.map(tf) as Bez) } : {}),
         });
       }
       for (const f of d.faces) {

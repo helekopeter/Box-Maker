@@ -1,6 +1,9 @@
 /** A 2D point in dieline (sheet) coordinates. Units are millimetres, y points down (like SVG). */
 export type Vec2 = [number, number];
 
+/** A cubic Bézier curve: start, two control points, end. */
+export type Bez = [Vec2, Vec2, Vec2, Vec2];
+
 export type BoxStyle =
   | 'rsc'
   | 'tuck'
@@ -63,6 +66,11 @@ export interface Panel {
   hinge?: [Vec2, Vec2];
   /** Further fold lines along this panel's edges where it meets panels it isn't hinged to. */
   creases?: [Vec2, Vec2][];
+  /**
+   * Curved stretches of the outline or holes as Béziers. The polygons hold points along
+   * them (for the 3D view); cut files draw the real curves.
+   */
+  curves?: Bez[];
   /** Fully-folded angle in degrees. Positive folds towards the inside of the box, negative outwards. */
   angle?: number;
   /** Fold order; panels with a lower stage fold first. */

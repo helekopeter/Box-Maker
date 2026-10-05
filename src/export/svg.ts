@@ -1,5 +1,6 @@
 import { decalExtent, decalPieces, fontStack } from '../artwork';
 import { chainSegments, computeLines, dashSegments, type Segment } from '../geometry/lines';
+import { curvesOf, restartLoop, stepsOf } from './curves';
 import type { Appearance, Dieline, ExportOptions, Vec2 } from '../types';
 
 export const COLORS = {
@@ -15,13 +16,17 @@ const esc = (s: string) =>
 const polyPath = (poly: Vec2[], closed: boolean) =>
   poly.map(([x, y], i) => `${i ? 'L' : 'M'}${n(x)} ${n(y)}`).join(' ') + (closed ? ' Z' : '');
 
-function chainsToPath(chains: Vec2[][]): string {
+/** Cut line paths, with real curves where the dieline has them. */
+function chainsToPath(chains: Vec2[][], curves: ReturnType<typeof curvesOf>): string {
   return chains
-    .map((c) => {
+    .map((chain) => {
+      const closed = chain.length > 2 && Math.hypot(chain[0][0] - chain[chain.length - 1][0], chain[0][1] - chain[chain.length - 1][1]) < 1e-3;
+      const c = closed ? restartLoop(chain, curves) : chain;
       const first = c[0];
-      const last = c[c.length - 1];
-      const closed = c.length > 2 && Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-3;
-      return polyPath(closed ? c.slice(0, -1) : c, closed);
+      const steps = stepsOf(c, curves)
+        .map(({ p, c: k }) => (k ? `C${n(k[0][0])} ${n(k[0][1])} ${n(k[1][0])} ${n(k[1][1])} ${n(p[0])} ${n(p[1])}` : `L${n(p[0])} ${n(p[1])}`))
+        .join(' ');
+      return `M${n(first[0])} ${n(first[1])} ${steps}${closed ? ' Z' : ''}`;
     })
     .join(' ');
 }
@@ -137,7 +142,7 @@ export function buildSvg(d: Dieline, look: Appearance, opts: SvgOptions): string
       layer('fold', 'Fold lines (perforated cut)', `<path d="${segPath(dashSegments(folds))}"${stroke(COLORS.cut)}/>`),
     );
   }
-  parts.push(layer('cut', 'Cut lines', `<path d="${chainsToPath(chainSegments(cuts))}"${stroke(COLORS.cut)}/>`));
+  parts.push(layer('cut', 'Cut lines', `<path d="${chainsToPath(chainSegments(cuts), curvesOf(d))}"${stroke(COLORS.cut)}/>`));
 
   const W = n(d.width);
   const H = n(d.height);

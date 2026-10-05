@@ -26,3 +26,20 @@ describe('buildSvg', () => {
     expect(svg).not.toContain('stroke-dasharray');
   });
 });
+
+describe('curves in cut files', () => {
+  it.each([
+    ['tuck', 4],
+    ['mailer', 2],
+    ['hexagon', 4],
+    ['gable', 8],
+  ] as const)('%s draws its rounded edges as real curves', (style, curves) => {
+    const d = generateDieline({ style, length: 100, width: 60, height: 80, thickness: 1.5, glueTab: 15, lidHeight: 30, lidClearance: 1 });
+    expect(d.panels.reduce((n, p) => n + (p.curves?.length ?? 0), 0)).toBe(curves);
+    const svg = buildSvg(d, { color: '#fff', decals: [] }, { foldMode: 'score', includeArtwork: false, includeGlue: false });
+    const cut = svg.match(/id="cut"[^>]*><path d="([^"]+)"/)![1];
+    expect((cut.match(/C/g) ?? []).length).toBe(curves);
+    // Each curve stands in for many short lines; far fewer straight steps are left.
+    expect((cut.match(/L/g) ?? []).length).toBeLessThan(80);
+  });
+});

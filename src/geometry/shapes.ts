@@ -1,4 +1,4 @@
-import type { Vec2 } from '../types';
+import type { Bez, Vec2 } from '../types';
 
 export const rect = (x: number, y: number, w: number, h: number): Vec2[] => [
   [x, y],
@@ -7,14 +7,53 @@ export const rect = (x: number, y: number, w: number, h: number): Vec2[] => [
   [x, y + h],
 ];
 
-/** Points along a circular arc from angle a0 to a1 (radians), excluding the start point. */
-export function arc(cx: number, cy: number, r: number, a0: number, a1: number, steps = 8): Vec2[] {
-  const pts: Vec2[] = [];
-  for (let i = 1; i <= steps; i++) {
-    const a = a0 + ((a1 - a0) * i) / steps;
-    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+/** A stretch of outline made of curves: points along it (excluding its start) and the curves. */
+export interface Curve {
+  pts: Vec2[];
+  bez: Bez[];
+}
+
+/** Points along a Bézier, excluding its start, close enough that chords stay within `tol` mm. */
+export function sampleBez(b: Bez, tol = 0.05): Vec2[] {
+  const [p0, c1, c2, p3] = b;
+  const hull = Math.hypot(c1[0] - p0[0], c1[1] - p0[1]) + Math.hypot(c2[0] - c1[0], c2[1] - c1[1]) + Math.hypot(p3[0] - c2[0], p3[1] - c2[1]);
+  const n = Math.max(2, Math.min(96, Math.ceil(Math.sqrt(hull / tol) * 0.6)));
+  const out: Vec2[] = [];
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const s = 1 - t;
+    const k0 = s * s * s, k1 = 3 * s * s * t, k2 = 3 * s * t * t, k3 = t * t * t;
+    out.push([k0 * p0[0] + k1 * c1[0] + k2 * c2[0] + k3 * p3[0], k0 * p0[1] + k1 * c1[1] + k2 * c2[1] + k3 * p3[1]]);
   }
-  return pts;
+  out[out.length - 1] = [p3[0], p3[1]];
+  return out;
+}
+
+/** A circular arc from angle a0 to a1 (radians) as Béziers (one per quarter turn at most). */
+export function arcCurve(cx: number, cy: number, r: number, a0: number, a1: number): Curve {
+  const parts = Math.max(1, Math.ceil(Math.abs(a1 - a0) / (Math.PI / 2) - 1e-9));
+  const step = (a1 - a0) / parts;
+  const k = (4 / 3) * Math.tan(step / 4);
+  const at = (a: number): Vec2 => [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+  const bez: Bez[] = [];
+  for (let i = 0; i < parts; i++) {
+    const s = a0 + step * i;
+    const e = s + step;
+    const p0 = at(s);
+    const p3 = at(e);
+    bez.push([p0, [p0[0] - Math.sin(s) * r * k, p0[1] + Math.cos(s) * r * k], [p3[0] + Math.sin(e) * r * k, p3[1] - Math.cos(e) * r * k], p3]);
+  }
+  return { pts: bez.flatMap((b) => sampleBez(b)), bez };
+}
+
+/** Moves a curve with an affine map (translations, mirrors and rotations keep Béziers exact). */
+export function mapCurve(c: Curve, f: (p: Vec2) => Vec2): Curve {
+  return { pts: c.pts.map(f), bez: c.bez.map((b) => b.map(f) as Bez) };
+}
+
+/** Points along a circular arc from angle a0 to a1 (radians), excluding the start point. */
+export function arc(cx: number, cy: number, r: number, a0: number, a1: number): Vec2[] {
+  return arcCurve(cx, cy, r, a0, a1).pts;
 }
 
 /** A tapered glue tab hinged on the vertical line x = hx, sticking out towards dirX. */
@@ -45,15 +84,14 @@ export function edgeTab(p0: Vec2, p1: Vec2, depth: number, inside: Vec2): Vec2[]
 }
 
 /** A rounded slot (stadium) centred on (cx, cy). */
-export function slot(cx: number, cy: number, w: number, h: number): Vec2[] {
+export function slot(cx: number, cy: number, w: number, h: number): Curve {
   const r = h / 2;
-  return [
-    [cx - w / 2 + r, cy - r],
-    [cx + w / 2 - r, cy - r],
-    ...arc(cx + w / 2 - r, cy, r, -Math.PI / 2, Math.PI / 2, 10),
-    [cx - w / 2 + r, cy + r],
-    ...arc(cx - w / 2 + r, cy, r, Math.PI / 2, Math.PI * 1.5, 10).slice(0, -1),
-  ];
+  const right = arcCurve(cx + w / 2 - r, cy, r, -Math.PI / 2, Math.PI / 2);
+  const left = arcCurve(cx - w / 2 + r, cy, r, Math.PI / 2, Math.PI * 1.5);
+  return {
+    pts: [[cx - w / 2 + r, cy - r], [cx + w / 2 - r, cy - r], ...right.pts, [cx - w / 2 + r, cy + r], ...left.pts.slice(0, -1)],
+    bez: [...right.bez, ...left.bez],
+  };
 }
 
 export function bounds(poly: Vec2[]) {

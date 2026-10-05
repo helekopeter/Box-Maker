@@ -1,4 +1,4 @@
-import type { BoxParams, BoxStyle, Dieline, Face, Panel, PieceInfo, Vec2 } from '../types';
+import type { Bez, BoxParams, BoxStyle, Dieline, Face, Panel, PieceInfo, Vec2 } from '../types';
 import { carton } from './cartons';
 import { cigarette, hexBox, mailer, matchbox } from './extra';
 import { glueTabPoly, rect } from './shapes';
@@ -282,6 +282,7 @@ function shift(panels: Panel[], faces: Face[], dx: number, dy: number) {
     if (p.holes) p.holes = p.holes.map((h) => h.map(mv));
     if (p.hinge) p.hinge = [mv(p.hinge[0]), mv(p.hinge[1])];
     if (p.creases) p.creases = p.creases.map(([a, b]) => [mv(a), mv(b)] as [Vec2, Vec2]);
+    if (p.curves) p.curves = p.curves.map((c) => c.map(mv) as Bez);
   }
   for (const f of faces) f.rect = { ...f.rect, x: f.rect.x + dx, y: f.rect.y + dy };
 }

@@ -1,5 +1,5 @@
 import type { BoxParams, Dieline, Face, Panel, Vec2 } from '../types';
-import { arc, bounds, edgeTab, glueTabPoly, rect, slot } from './shapes';
+import { arcCurve, bounds, edgeTab, glueTabPoly, mapCurve, rect, slot } from './shapes';
 
 /**
  * Folding cartons: four walls in a row joined by a glue seam, with an interchangeable
@@ -115,16 +115,12 @@ function tuckEnd(b: Body, e: End, attach: 'back' | 'front') {
   // Rounded tuck flap, drawn in (x, v) space where v grows away from the body.
   const tx0 = x0 + i;
   const tx1 = x0 + L - i;
-  const pts: [number, number][] = [
-    [tx0, W],
-    [tx0, W + T - R],
-    ...arc(tx0 + R, W + T - R, R, Math.PI, Math.PI / 2),
-    [tx1 - R, W + T],
-    ...arc(tx1 - R, W + T - R, R, Math.PI / 2, 0),
-    [tx1, W],
-  ];
+  const c0 = mapCurve(arcCurve(tx0 + R, W + T - R, R, Math.PI, Math.PI / 2), ([x, v]) => e.at(x, v));
+  const c1 = mapCurve(arcCurve(tx1 - R, W + T - R, R, Math.PI / 2, 0), ([x, v]) => e.at(x, v));
   b.panels.push({
-    id: `${e.name}-tuck`, piece: 0, kind: 'flap', poly: e.poly(pts),
+    id: `${e.name}-tuck`, piece: 0, kind: 'flap',
+    poly: [e.at(tx0, W), e.at(tx0, W + T - R), ...c0.pts, e.at(tx1 - R, W + T), ...c1.pts, e.at(tx1, W)],
+    curves: [...c0.bez, ...c1.bez],
     parent: e.name, hinge: [e.at(tx0, W), e.at(tx1, W)], stage: 3, offset: -1,
     motion: motion.keys,
   });
@@ -381,7 +377,10 @@ function gableTop(b: Body, _e: End) {
     const handle = rect(x, -R - Hh, L, Hh);
     b.panels.push({
       id: `handle-${wall}`, piece: 0, kind: 'face', poly: handle,
-      holes: [slot(x + L / 2, -R - Hh * 0.55, hw, hh)],
+      ...(() => {
+        const hole = slot(x + L / 2, -R - Hh * 0.55, hw, hh);
+        return { holes: [hole.pts], curves: hole.bez };
+      })(),
       // Folds back out so the handle stands upright; nudged outwards so the two handle
       // layers sit back to back instead of inside each other.
       parent: `roof-${wall}`, hinge: [[x, -R], [x + L, -R]], angle: -phi, stage: 4, offset: 1,
