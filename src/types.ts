@@ -11,7 +11,6 @@ export type BoxStyle =
   | 'gable'
   | 'tray'
   | 'traylid'
-  | 'sleeve'
   | 'mailer'
   | 'matchbox'
   | 'hexagon'
@@ -32,6 +31,8 @@ export interface BoxParams {
   lidHeight: number;
   /** Extra room between tray and lid or sleeve, in mm. */
   lidClearance: number;
+  /** Matchbox: thumb notches at the sleeve's open ends (default on). */
+  notches?: boolean;
 }
 
 export type PanelKind = 'face' | 'flap' | 'glue';

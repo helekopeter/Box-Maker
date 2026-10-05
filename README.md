@@ -14,9 +14,8 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
    - Gable top with handle
    - Open tray
    - Tray + lid
-   - Tray + sleeve
    - Pizza box (one-piece FEFCO 0427 style mailer, no glue: double side walls lock the corners, the lid tucks in at the front)
-   - Matchbox (a glue-free double-walled drawer in a sleeve, with thumb notches at both ends)
+   - Matchbox (a glue-free double-walled drawer that slides out of a sleeve; thumb notches at the sleeve ends can be switched on or off)
    - Hexagonal gift box (six walls with hexagonal tuck lids; *Across* is the inside width across the flat sides)
    - Cigarette box (flip-top pack: the lid opens on a fold at the back and closes over an inner collar, a second piece glued inside the front; open it with the Lid slider)
    - **Shape Builder** (the big card at the end): design your own shape instead (see below)

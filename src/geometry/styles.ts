@@ -42,17 +42,13 @@ export const STYLE_INFO: Record<BoxStyle, { name: string; description: string }>
     name: 'Tray + lid',
     description: 'Two-piece telescoping box: a tray and a slightly larger lid that slides over it.',
   },
-  sleeve: {
-    name: 'Tray + sleeve',
-    description: 'Two pieces: an open tray that slides into an outer sleeve, open at both ends.',
-  },
   mailer: {
     name: 'Pizza box',
     description: 'One-piece mailer (FEFCO 0427 style). Double side walls lock the corners, the lid tucks in at the front. No glue.',
   },
   matchbox: {
     name: 'Matchbox',
-    description: 'A drawer that slides out of a sleeve. The drawer has double side walls and needs no glue; thumb notches at both ends.',
+    description: 'A drawer that slides out of a sleeve. The drawer has double side walls and needs no glue; thumb notches at the sleeve ends are optional.',
   },
   hexagon: {
     name: 'Hexagonal gift box',
@@ -290,7 +286,7 @@ function shift(panels: Panel[], faces: Face[], dx: number, dy: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Tray + sleeve
+// Sleeve (the matchbox's outer piece)
 // ---------------------------------------------------------------------------
 
 /** An open-ended tube: top, back, bottom and front panels in a row plus a glue tab. */
@@ -321,26 +317,6 @@ function sleevePiece(innerW: number, innerH: number, length: number, t: number, 
   return { panels, faces, width: x + g, height: length, outer: [length, Ws, Hs] as [number, number, number] };
 }
 
-function sleeve(p: BoxParams): Dieline {
-  const t = p.thickness;
-  const base = trayPiece(p.length, p.width, p.height, t, p.glueTab, 0, '', '', false);
-  const c = p.lidClearance;
-  const sl = sleevePiece(base.outer[1] + 2 * c, base.outer[2] + c, base.outer[0], t, p.glueTab, 1);
-  shift(sl.panels, sl.faces, base.width + 8, (base.height - sl.height) / 2);
-  return finish({
-    panels: [...base.panels, ...sl.panels],
-    faces: [...base.faces, ...sl.faces],
-    pieces: [
-      { index: 0, root: 'bottom', rotation: [90, 0, 0], role: 'base' },
-      // Lay the sleeve's top panel flat with its length running left-right.
-      { index: 1, root: 'sleeve-top', rotation: [-90, 0, 90], role: 'sleeve' },
-    ],
-    width: 0,
-    height: 0,
-    outer: [sl.outer[0], sl.outer[1], sl.outer[2]],
-  });
-}
-
 /** Normalises the layout so it starts at (MARGIN, MARGIN) and records the sheet size. */
 export function finish(d: Dieline): Dieline {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -368,7 +344,6 @@ export function generateDieline(p: BoxParams): Dieline {
     case 'gable': return finish(carton(p, 'gable', 'snaplock'));
     case 'tray': return tray(p);
     case 'traylid': return traylid(p);
-    case 'sleeve': return sleeve(p);
     case 'mailer': return finish(mailer(p));
     case 'matchbox': return finish(matchbox(p, sleevePiece, shift));
     case 'hexagon': return finish(hexBox(p));

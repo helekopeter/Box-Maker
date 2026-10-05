@@ -15,8 +15,8 @@ const base: BoxParams = {
   lidHeight: 30,
   lidClearance: 1,
 };
-const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve', 'mailer', 'matchbox', 'hexagon', 'cigarette'];
-const twoPiece = (s: BoxStyle) => s === 'traylid' || s === 'sleeve' || s === 'matchbox';
+const styles: BoxStyle[] = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'mailer', 'matchbox', 'hexagon', 'cigarette'];
+const twoPiece = (s: BoxStyle) => s === 'traylid' || s === 'matchbox';
 
 describe.each(styles)('%s', (style) => {
   const p = { ...base, style };
@@ -54,7 +54,7 @@ describe.each(styles)('%s', (style) => {
     expect(Math.abs(size.z - W)).toBeLessThan(tol);
     expect(Math.abs(size.y - H)).toBeLessThan(tol);
     // Sits on the ground (or on the sleeve's bottom panel), centred.
-    expect(box.min.y).toBeCloseTo(style === 'sleeve' || style === 'matchbox' ? t : 0, 3);
+    expect(box.min.y).toBeCloseTo(style === 'matchbox' ? t : 0, 3);
     expect(Math.abs(box.min.x + box.max.x)).toBeLessThan(1e-6);
   });
 
@@ -102,9 +102,9 @@ describe('traylid', () => {
   });
 });
 
-describe('sleeve', () => {
-  it('wraps around the tray with the ends open', () => {
-    const d = generateDieline({ ...base, style: 'sleeve' });
+describe('matchbox sleeve', () => {
+  it('wraps around the drawer with the ends open', () => {
+    const d = generateDieline({ ...base, style: 'matchbox' });
     const tray = foldedBounds(d, 1, { thickness: 3 }, 0);
     const sl = foldedBounds(d, 1, { thickness: 3 }, 1);
     // Same length, encloses the tray across its width and height.
@@ -125,6 +125,12 @@ describe('matchbox', () => {
     expect(sl.max.z).toBeGreaterThan(drawer.max.z);
     expect(sl.max.y).toBeGreaterThan(drawer.max.y);
     expect(d.panels.find((x) => x.id === 'sleeve-top')!.poly.length).toBeGreaterThan(4);
+  });
+
+  it('can leave out the thumb notches', () => {
+    const d = generateDieline({ ...base, style: 'matchbox', notches: false });
+    expect(d.panels.find((x) => x.id === 'sleeve-top')!.poly.length).toBe(4);
+    expect(d.panels.find((x) => x.id === 'sleeve-bottom')!.poly.length).toBe(4);
   });
 });
 

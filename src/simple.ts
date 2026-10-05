@@ -86,7 +86,7 @@ function load(): State {
     return {
       ...d,
       ...s,
-      params: { ...d.params, ...s.params },
+      params: migrateParams({ ...d.params, ...s.params }),
       shape: sanitizeShape(s.shape) ?? d.shape,
       look: { ...d.look, ...s.look, ...(texture ? { texture } : {}) },
       exp: { ...d.exp, ...s.exp },
@@ -114,7 +114,6 @@ export const STYLE_ICONS: Record<BoxStyle, string> = {
   matchbox: '<path d="M4 34 26 26l34 10v10L38 54 4 44z"/><path d="M4 34l34 10 22-8M38 44v10" class="l"/><path d="M16 22l22-8 12 4v14L28 40 16 36z"/><path d="M16 22l12 4 22-8M28 26v14" class="l"/><path d="M24 23.5a5 3 0 0 0 9 2" class="l"/>',
   hexagon: '<path d="M14 18l9-6h18l9 6-9 6H23zM14 18v26l9 6h18l9-6V18"/><path d="M23 24v26M41 24v26M14 18l9 6h18l9-6" class="l"/>',
   cigarette: '<path d="M18 22 34 16l12 6v34l-16 6-12-6z"/><path d="M18 22l16 6 12-6M34 28v34M18 30l16 6 12-6" class="l"/><path d="M18 22 30 4l16 6-12 6" /><path d="M22 23v-6l14 5" class="l"/>',
-  sleeve: '<path d="M4 34 26 26l34 10v10L38 54 4 44z"/><path d="M4 34l34 10 22-8M38 44v10" class="l"/><path d="M16 22l22-8 12 4v14L28 40 16 36z"/><path d="M16 22l12 4 22-8M28 26v14" class="l"/>',
 };
 
 export class SimpleTab {
@@ -205,7 +204,8 @@ export class SimpleTab {
     this.syncTexture();
     this.renderDieline2D();
     this.renderArt();
-    const sliding = p.style === 'sleeve' || p.style === 'matchbox';
+    const sliding = p.style === 'matchbox';
+    $('#notches-row').hidden = !sliding;
     const twoPiece = p.style === 'traylid' || sliding;
     $('#lid-opts').hidden = !twoPiece;
     $('#lid-height-row').hidden = p.style !== 'traylid';
@@ -330,6 +330,7 @@ export class SimpleTab {
     }
     for (const id of SimpleTab.mmIds) $<HTMLInputElement>(`#${id}`).value = String(p[id]);
     $<HTMLInputElement>('#thickness').value = String(p.thickness);
+    $<HTMLInputElement>('#notches').checked = p.notches !== false;
     $<HTMLSelectElement>('#material').value = state.material;
     $('#thickness-row').hidden = state.material !== 'custom';
     document.querySelectorAll<HTMLButtonElement>('#units button').forEach((b) => b.classList.toggle('on', b.dataset.unit === state.units));
@@ -358,6 +359,11 @@ export class SimpleTab {
         this.update();
       });
     }
+    $<HTMLInputElement>('#notches').addEventListener('change', (e) => {
+      if ((e.target as HTMLInputElement).checked) delete this.state.params.notches;
+      else this.state.params.notches = false;
+      this.update();
+    });
     $<HTMLSelectElement>('#material').addEventListener('change', (e) => {
       this.state.material = (e.target as HTMLSelectElement).value;
       if (this.state.material !== 'custom') this.state.params.thickness = parseFloat(this.state.material);
@@ -439,7 +445,7 @@ export class SimpleTab {
     const v = parseFloat($<HTMLInputElement>('#lift').value);
     const [L, , H] = this.dieline.outer;
     const style = this.state.params.style;
-    const sliding = style === 'sleeve' || style === 'matchbox';
+    const sliding = style === 'matchbox';
     // A flip-top lid swings open on its hinge instead of lifting off.
     this.preview.setLidOpen(style === 'cigarette' ? v : 0);
     this.preview.setLidLift(style === 'cigarette' ? 0 : sliding ? v * L * 1.05 : v * H * 1.2);
@@ -519,6 +525,14 @@ export class SimpleTab {
   }
 }
 
+/**
+ * Older boxes may use the "Tray + sleeve" style, which is now the matchbox without thumb
+ * notches.
+ */
+function migrateParams<T extends { style: BoxStyle; notches?: boolean }>(p: T): T {
+  return (p.style as string) === 'sleeve' ? { ...p, style: 'matchbox', notches: false } : p;
+}
+
 /** Validates a Simple box loaded from a file or the Box Universe. */
 export function sanitizeSimple(raw: unknown): SimpleShare | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -528,11 +542,13 @@ export function sanitizeSimple(raw: unknown): SimpleShare | null {
   const d = defaults().params;
   const n = (v: unknown, lo: number, hi: number, dflt: number) =>
     typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt;
-  const style = (Object.keys(STYLE_INFO) as BoxStyle[]).includes(p.style as BoxStyle) ? (p.style as BoxStyle) : d.style;
+  const m = migrateParams({ style: p.style as BoxStyle, notches: p.notches as boolean | undefined });
+  const style = (Object.keys(STYLE_INFO) as BoxStyle[]).includes(m.style) ? m.style : d.style;
   return {
     kind: 'simple',
     params: {
       style,
+      ...(m.notches === false ? { notches: false } : {}),
       length: n(p.length, 5, 3000, d.length),
       width: n(p.width, 5, 3000, d.width),
       height: n(p.height, 5, 3000, d.height),

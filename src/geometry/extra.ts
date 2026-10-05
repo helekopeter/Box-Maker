@@ -129,8 +129,8 @@ function notch(poly: Vec2[], r: number): Vec2[] {
 }
 
 /**
- * Matchbox: a double-walled drawer (no glue) and a sleeve it slides through, with thumb
- * notches at both ends of the sleeve for pushing the drawer out.
+ * Matchbox: a double-walled drawer (no glue) and a sleeve it slides through, optionally with
+ * thumb notches at both ends of the sleeve for pushing the drawer out.
  */
 export function matchbox(p: BoxParams, sleevePiece: SleeveBuilder, shift: Shifter): Dieline {
   const t = p.thickness;
@@ -139,7 +139,7 @@ export function matchbox(p: BoxParams, sleevePiece: SleeveBuilder, shift: Shifte
   const [L, W, H] = tr.outer;
   const sl = sleevePiece(W + 2 * c, H + c, L, t, p.glueTab, 1);
   const r = Math.min((W + 2 * c) * 0.18, L * 0.2, 14);
-  for (const id of ['sleeve-top', 'sleeve-bottom']) {
+  for (const id of p.notches === false ? [] : ['sleeve-top', 'sleeve-bottom']) {
     const panel = sl.panels.find((q) => q.id === id)!;
     panel.poly = notch(panel.poly, r);
   }

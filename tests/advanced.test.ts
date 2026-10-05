@@ -103,7 +103,7 @@ describe('advanced model', () => {
 });
 
 describe('converting Simple boxes to Advanced designs', () => {
-  const styles = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid', 'sleeve'] as const;
+  const styles = ['rsc', 'tuck', 'rte', 'snaplock', 'autolock', 'sealend', 'gable', 'tray', 'traylid'] as const;
   it.each(styles)('%s keeps every panel and folds to the same shape', async (style) => {
     const { generateDieline } = await import('../src/geometry/styles');
     const { fromDieline } = await import('../src/advanced/convert');

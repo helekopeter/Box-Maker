@@ -69,7 +69,7 @@ export const EXAMPLES: SharedBox[] = [
   {
     id: 'ex-sleeve', created_at: t, example: true, kind: 'simple', thumbnail: '', tags: ['gift', 'drawer'], likes: 0,
     name: 'Gift box with sleeve', author: 'Box Maker', description: 'A tray that slides into a sleeve.',
-    data: { kind: 'simple', params: { style: 'sleeve', length: 120, width: 80, height: 30, thickness: 1.5, glueTab: 15, lidHeight: 30, lidClearance: 1 }, look: { color: '#222222', decals: [] } },
+    data: { kind: 'simple', params: { style: 'matchbox', length: 120, width: 80, height: 30, thickness: 1.5, glueTab: 15, lidHeight: 30, lidClearance: 1, notches: false }, look: { color: '#222222', decals: [] } },
   },
   {
     id: 'ex-pentagon', created_at: t, example: true, kind: 'advanced', thumbnail: '', tags: ['gift', 'geometric'], likes: 0,

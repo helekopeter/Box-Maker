@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cleanTags, LocalStore, matches, sanitizeBox, sortBoxes, type SharedBox } from '../src/universe/store';
 import { EXAMPLES } from '../src/universe/examples';
+import { sanitizeSimple } from '../src/simple';
 
 const box = (over: Partial<SharedBox>): SharedBox => ({ ...EXAMPLES[0], example: undefined, id: 'x', likes: 0, tags: [], ...over });
 
@@ -52,5 +53,13 @@ describe('local likes', () => {
     const liked = await store.list({ query: '', sort: 'liked' });
     expect(liked.map((x) => x.id)).toEqual([a.id, b.id]);
     expect((await store.list({ query: '', tag: 'gift', sort: 'new' })).map((x) => x.id)).toEqual([a.id]);
+  });
+});
+
+describe('older boxes', () => {
+  it('turns a "Tray + sleeve" box into a matchbox without notches', () => {
+    const old = sanitizeSimple({ kind: 'simple', params: { style: 'sleeve', length: 120, width: 80, height: 30 }, look: { color: '#222222', decals: [] } })!;
+    expect(old.params.style).toBe('matchbox');
+    expect(old.params.notches).toBe(false);
   });
 });
