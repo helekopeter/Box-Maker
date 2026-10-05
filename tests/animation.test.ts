@@ -97,6 +97,13 @@ describe.each(styles)('%s fold animation', (style) => {
 });
 
 
+describe('open hexagon box', () => {
+  it.each(sizes)('folds cleanly (%s×%s×%s, %s mm)', (length, width, height, thickness) => {
+    const p: BoxParams = { style: 'hexagon', lid: false, length, width, height, thickness, glueTab: 15, lidHeight: 30, lidClearance: 1 };
+    expect(findCrossings(generateDieline(p), thickness).map((c) => `${c.moving} through ${c.through}`)).toEqual([]);
+  });
+});
+
 describe('Box Universe examples', () => {
   it.each(EXAMPLES.filter((e) => e.data.kind === 'advanced').map((e) => [e.name, e] as const))(
     '%s cuts from one piece and folds cleanly',

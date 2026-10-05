@@ -143,6 +143,14 @@ describe('hexagon', () => {
     expect(size.x / size.z).toBeCloseTo(2 / Math.sqrt(3), 1);
     expect(d.panels.find((x) => x.id === 'top')!.poly.length).toBe(6);
   });
+
+  it('can leave the top open', () => {
+    const d = generateDieline({ ...base, style: 'hexagon', lid: false });
+    expect(d.panels.some((x) => x.id === 'top' || x.id.includes('dust-top'))).toBe(false);
+    expect(d.panels.some((x) => x.id === 'bottom')).toBe(true);
+    const box = foldedBounds(d, 1, { thickness: 3 });
+    expect(box.max.y - box.min.y).toBeCloseTo(base.height + 6, 0);
+  });
 });
 
 describe('gable', () => {

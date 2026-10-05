@@ -33,6 +33,8 @@ export interface BoxParams {
   lidClearance: number;
   /** Matchbox: thumb notches at the sleeve's open ends (default on). */
   notches?: boolean;
+  /** Hexagonal gift box: a tuck lid on top (default on; off leaves it open). */
+  lid?: boolean;
 }
 
 export type PanelKind = 'face' | 'flap' | 'glue';

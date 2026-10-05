@@ -206,6 +206,7 @@ export class SimpleTab {
     this.renderArt();
     const sliding = p.style === 'matchbox';
     $('#notches-row').hidden = !sliding;
+    $('#lid-row').hidden = p.style !== 'hexagon';
     const twoPiece = p.style === 'traylid' || sliding;
     $('#lid-opts').hidden = !twoPiece;
     $('#lid-height-row').hidden = p.style !== 'traylid';
@@ -331,6 +332,7 @@ export class SimpleTab {
     for (const id of SimpleTab.mmIds) $<HTMLInputElement>(`#${id}`).value = String(p[id]);
     $<HTMLInputElement>('#thickness').value = String(p.thickness);
     $<HTMLInputElement>('#notches').checked = p.notches !== false;
+    $<HTMLInputElement>('#hexlid').checked = p.lid !== false;
     $<HTMLSelectElement>('#material').value = state.material;
     $('#thickness-row').hidden = state.material !== 'custom';
     document.querySelectorAll<HTMLButtonElement>('#units button').forEach((b) => b.classList.toggle('on', b.dataset.unit === state.units));
@@ -359,6 +361,11 @@ export class SimpleTab {
         this.update();
       });
     }
+    $<HTMLInputElement>('#hexlid').addEventListener('change', (e) => {
+      if ((e.target as HTMLInputElement).checked) delete this.state.params.lid;
+      else this.state.params.lid = false;
+      this.update();
+    });
     $<HTMLInputElement>('#notches').addEventListener('change', (e) => {
       if ((e.target as HTMLInputElement).checked) delete this.state.params.notches;
       else this.state.params.notches = false;
@@ -549,6 +556,7 @@ export function sanitizeSimple(raw: unknown): SimpleShare | null {
     params: {
       style,
       ...(m.notches === false ? { notches: false } : {}),
+      ...(p.lid === false ? { lid: false } : {}),
       length: n(p.length, 5, 3000, d.length),
       width: n(p.width, 5, 3000, d.width),
       height: n(p.height, 5, 3000, d.height),

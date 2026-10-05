@@ -179,14 +179,18 @@ export function hexBox(p: BoxParams): Dieline {
   const faces: Face[] = [];
   // The lids hinge on the first wall; the others stop a board's thickness short at both
   // ends so the lids can close over them.
-  const y0 = (k: number) => (k ? t : 0);
+  // Without a lid the top is open and the walls all go right up.
+  const lid = p.lid !== false;
+  const top0 = (k: number) => (k && lid ? t : 0);
+  const bot0 = (k: number) => (k ? t : 0);
   for (let k = 0; k < 6; k++) {
     const x = k * s;
+    const h = H - top0(k) - bot0(k);
     panels.push({
-      id: `side-${k + 1}`, piece: 0, kind: 'face', poly: rect(x, y0(k), s, H - 2 * y0(k)),
-      ...(k ? { parent: `side-${k}`, hinge: [[x, t], [x, H - t]] as [Vec2, Vec2], angle: 60, stage: 1 } : {}),
+      id: `side-${k + 1}`, piece: 0, kind: 'face', poly: rect(x, top0(k), s, h),
+      ...(k ? { parent: `side-${k}`, hinge: [[x, lid ? t : 0], [x, H - t]] as [Vec2, Vec2], angle: 60, stage: 1 } : {}),
     });
-    faces.push({ id: `side-${k + 1}`, label: `Side ${k + 1}`, rect: { x, y: y0(k), w: s, h: H - 2 * y0(k) }, rotation: 0 });
+    faces.push({ id: `side-${k + 1}`, label: `Side ${k + 1}`, rect: { x, y: top0(k), w: s, h }, rotation: 0 });
   }
   panels.push({
     // Stops short of the top and bottom so it stays clear of the lids.
@@ -199,7 +203,7 @@ export function hexBox(p: BoxParams): Dieline {
   const i = Math.min(t, 1.5);
   const R = Math.min(T * 0.8, (s - 2 * i) / 3);
   const d = Math.min(a * 0.55, H * 0.4); // dust flap depth
-  for (const top of [true, false]) {
+  for (const top of lid ? [true, false] : [false]) {
     const name = top ? 'top' : 'bottom';
     // Sheet point at x, v away from the walls' top (or bottom) edge.
     const at = (x: number, v: number): Vec2 => [x, top ? -v : H + v];
