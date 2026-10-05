@@ -1,0 +1,420 @@
+{
+ "version": 1,
+ "name": "My box",
+ "thickness": 1.5,
+ "color": "#c9a46b",
+ "base": {
+  "width": 100,
+  "height": 100,
+  "holes": []
+ },
+ "panels": [
+  {
+   "id": "w1tvgfk",
+   "parent": "base",
+   "edge": 1,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 8,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 1,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "sibonfo",
+   "parent": "w1tvgfk",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 90,
+   "shape": {
+    "type": "custom",
+    "points": [
+     [
+      10,
+      92
+     ],
+     [
+      0,
+      92
+     ]
+    ]
+   },
+   "angle": 0,
+   "order": 2,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "ppce5mw",
+   "parent": "sibonfo",
+   "edge": 3,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": -8
+   },
+   "angle": 90,
+   "order": 3,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "wwin6g2",
+   "parent": "ppce5mw",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 4,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "iufk89m",
+   "parent": "wwin6g2",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 5,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "zig6wgy",
+   "parent": "w1tvgfk",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 90,
+   "inset1": 0,
+   "shape": {
+    "type": "custom",
+    "points": [
+     [
+      10,
+      92
+     ],
+     [
+      0,
+      92
+     ]
+    ]
+   },
+   "angle": 0,
+   "order": 2,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "k8fwi7h",
+   "parent": "zig6wgy",
+   "edge": 1,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": -8,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 3,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "x7bqv3b",
+   "parent": "k8fwi7h",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 4,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "153mbnw",
+   "parent": "x7bqv3b",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 5,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "kamsweb",
+   "parent": "base",
+   "edge": 3,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 8,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 1,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "morhko8",
+   "parent": "kamsweb",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 90,
+   "shape": {
+    "type": "custom",
+    "points": [
+     [
+      10,
+      92
+     ],
+     [
+      0,
+      92
+     ]
+    ]
+   },
+   "angle": 0,
+   "order": 2,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "r4a6jyy",
+   "parent": "kamsweb",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 90,
+   "inset1": 0,
+   "shape": {
+    "type": "custom",
+    "points": [
+     [
+      10,
+      92
+     ],
+     [
+      0,
+      92
+     ]
+    ]
+   },
+   "angle": 0,
+   "order": 2,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "ol7qk8z",
+   "parent": "morhko8",
+   "edge": 3,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": -8
+   },
+   "angle": 90,
+   "order": 3,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "c82zf9p",
+   "parent": "r4a6jyy",
+   "edge": 1,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": -8,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 3,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "vi6upta",
+   "parent": "ol7qk8z",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 4,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "bmcs5di",
+   "parent": "c82zf9p",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 4,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "mk5o1jw",
+   "parent": "vi6upta",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 5,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "g15wr7k",
+   "parent": "bmcs5di",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 10,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 5,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "exvatqk",
+   "parent": "base",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 8,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 1,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "ccspa3d",
+   "parent": "base",
+   "edge": 0,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 8,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 1,
+   "layer": 0,
+   "holes": []
+  },
+  {
+   "id": "khd65jh",
+   "parent": "ccspa3d",
+   "edge": 2,
+   "kind": "wall",
+   "inset0": 0,
+   "inset1": 0,
+   "shape": {
+    "type": "rect",
+    "depth": 100,
+    "taper0": 0,
+    "taper1": 0
+   },
+   "angle": 90,
+   "order": 2,
+   "layer": 0,
+   "holes": []
+  }
+ ],
+ "decals": []
+}

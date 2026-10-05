@@ -60,6 +60,12 @@ export class Editor {
   private cut: CutState | null = null;
   /** A pen or cut-out point being dragged out into a curve (its handle follows the pointer). */
   private bend: PathPoint | null = null;
+  /** Points popped by undo while drawing, for redo. */
+  private pointRedo: PathPoint[] = [];
+  /** A length being typed while drawing (Enter places the next point that far away). */
+  private typed = '';
+  /** Shift held: drawn segments keep to 15° steps. */
+  private shiftHeld = false;
   /** The measure tool's line (kept on screen until the next measurement). */
   private measure: { a: Vec2; b: Vec2; done: boolean } | null = null;
   /** Placing a copy of a panel: click a free edge to drop it there. */
@@ -108,6 +114,8 @@ export class Editor {
     this.cut = null;
     this.placing = null;
     this.measure = null;
+    this.typed = '';
+    this.pointRedo = [];
     this.hint();
     this.render();
     this.onTool(t);
@@ -259,6 +267,45 @@ export class Editor {
   /** Keyboard shortcuts; returns true if the key was handled. */
   key(e: KeyboardEvent): boolean {
     const mod = e.ctrlKey || e.metaKey;
+    // While drawing, undo/redo and typed lengths work on the drawing itself.
+    const drawing = this.drawingPoints();
+    if (drawing) {
+      if (mod && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+        if (e.key.toLowerCase() === 'y' || e.shiftKey) {
+          const q = this.pointRedo.pop();
+          if (q) drawing.push(q);
+        } else if (drawing.length) {
+          this.pointRedo.push(drawing.pop()!);
+        } else {
+          // Nothing left to take back: stop drawing.
+          this.pen = null;
+          this.cut = null;
+          this.hint();
+        }
+        this.typed = '';
+        this.render();
+        return true;
+      }
+      if (!mod && /^[0-9.,]$/.test(e.key)) {
+        this.typed += e.key === ',' ? '.' : e.key;
+        this.render();
+        return true;
+      }
+      if (e.key === 'Backspace' && this.typed) {
+        this.typed = this.typed.slice(0, -1);
+        this.render();
+        return true;
+      }
+      if (e.key === 'Enter' && this.typed) {
+        this.placeTyped(e.shiftKey);
+        return true;
+      }
+      if (e.key === 'Escape' && this.typed) {
+        this.typed = '';
+        this.render();
+        return true;
+      }
+    }
     if (mod && e.key.toLowerCase() === 'z') {
       if (e.shiftKey) this.redo();
       else this.undo();
@@ -291,8 +338,8 @@ export class Editor {
       this.finishCut();
       return true;
     }
-    if (e.key === 'Backspace' && (this.pen?.points.length || this.cut?.points.length)) {
-      (this.pen?.points ?? this.cut!.points).pop();
+    if (e.key === 'Backspace' && drawing?.length) {
+      this.pointRedo.push(drawing.pop()!);
       this.render();
       return true;
     }
@@ -398,6 +445,7 @@ export class Editor {
     }
     if (e.button !== 0) return;
 
+    this.shiftHeld = e.shiftKey;
     if (this.tool === 'pen') return this.penClick(p);
     if (this.tool === 'cut') return this.cutClick(p);
     if (this.placing) return this.placeClick(p);
@@ -452,6 +500,7 @@ export class Editor {
   private onMove(e: PointerEvent) {
     const p = this.toWorld(e);
     this.cursor = p;
+    this.shiftHeld = e.shiftKey;
     const d = this.drag;
     if (d?.kind === 'pan') {
       this.view = { ...d.view, tx: d.view.tx + e.clientX - d.start[0], ty: d.view.ty + e.clientY - d.start[1] };
@@ -710,7 +759,7 @@ export class Editor {
         return;
       }
     }
-    this.addPathPoint(this.pen.points, p);
+    this.addPathPoint(this.pen.points, p, this.shiftHeld);
   }
 
   private finishPen(end: Vec2) {
@@ -753,9 +802,47 @@ export class Editor {
     this.keepInView(child.id);
   }
 
+  /** The points of the pen or cut-out drawing in progress, if any. */
+  private drawingPoints(): PathPoint[] | null {
+    return this.pen?.points ?? this.cut?.points ?? null;
+  }
+
+  /** The point the next segment starts from. */
+  private lastDrawn(): Vec2 | null {
+    if (this.pen) return this.pen.points.length ? this.pen.points[this.pen.points.length - 1].p : this.pen.start;
+    if (this.cut?.points.length) return this.cut.points[this.cut.points.length - 1].p;
+    return null;
+  }
+
+  /** Where a click at `p` puts the next point: on the grid, or with Shift at a 15° step. */
+  private aimAt(p: Vec2, shift: boolean): Vec2 {
+    const from = this.lastDrawn();
+    if (!shift || !from) return this.snapPt(p);
+    const len = this.snapVal(Math.hypot(p[0] - from[0], p[1] - from[1]));
+    const step = Math.PI / 12;
+    const a = Math.round(Math.atan2(p[1] - from[1], p[0] - from[0]) / step) * step;
+    return [from[0] + Math.cos(a) * len, from[1] + Math.sin(a) * len];
+  }
+
+  /** Places the next point the typed length away, towards the pointer. */
+  private placeTyped(shift: boolean) {
+    const len = parseFloat(this.typed);
+    this.typed = '';
+    const from = this.lastDrawn();
+    const list = this.drawingPoints();
+    if (!from || !list || !this.cursor || !(len > 0)) return this.render();
+    const aim = this.aimAt(this.cursor, shift || this.shiftHeld);
+    const d = Math.hypot(aim[0] - from[0], aim[1] - from[1]);
+    if (d < 1e-6) return this.render();
+    list.push({ p: [from[0] + ((aim[0] - from[0]) * len) / d, from[1] + ((aim[1] - from[1]) * len) / d] });
+    this.pointRedo = [];
+    this.render();
+  }
+
   /** Adds a corner; dragging before letting go pulls it into a curve. */
-  private addPathPoint(list: PathPoint[], p: Vec2) {
-    const pt: PathPoint = { p: this.snapPt(p) };
+  private addPathPoint(list: PathPoint[], p: Vec2, shift = false) {
+    const pt: PathPoint = { p: this.aimAt(p, shift) };
+    this.pointRedo = [];
     list.push(pt);
     this.bend = pt;
     this.render();
@@ -768,7 +855,7 @@ export class Editor {
       if (!id) return;
       this.cut = { panel: id, points: [] };
       this.hint();
-      this.addPathPoint(this.cut.points, p);
+      this.addPathPoint(this.cut.points, p, this.shiftHeld);
       return;
     }
     const first = this.cut.points[0].p;
@@ -776,7 +863,7 @@ export class Editor {
       this.finishCut();
       return;
     }
-    this.addPathPoint(this.cut.points, p);
+    this.addPathPoint(this.cut.points, p, this.shiftHeld);
   }
 
   private finishCut() {
@@ -798,10 +885,10 @@ export class Editor {
     const hints: Record<Tool, string> = {
       select: '+ adds a wall or flap · double-click an angle or length to type it · double-click an edge: add corner · Ctrl+D: duplicate · Ctrl+Z: undo',
       pen: this.pen
-        ? 'Click for a corner, drag for a curve. Click the starting edge again to finish (Backspace undoes a point, Esc cancels).'
+        ? 'Click for a corner, drag for a curve, or type a length + Enter. Shift: 15° steps. Click the starting edge to finish. Ctrl+Z: undo a point.'
         : 'Click a free edge of a wall (or the base) to start drawing a flap from it.',
       cut: this.cut
-        ? 'Click for a corner, drag for a curve. Click the first point or press Enter to finish the cut-out.'
+        ? 'Click for a corner, drag for a curve, or type a length + Enter. Shift: 15° steps. Click the first point or press Enter to finish. Ctrl+Z: undo a point.'
         : 'Click inside a panel to start a cut-out.',
       measure: 'Click two points (or drag) to measure. Snaps to corners and edges.',
     };
@@ -994,6 +1081,18 @@ export class Editor {
     return `<path class="edge-hover" d="M${n(p[0])} ${n(p[1])}L${n(q[0])} ${n(q[1])}"/>`;
   }
 
+  /** Length and angle of the segment being drawn, and any typed length, by the pointer. */
+  private segmentReadout(px: (v: number) => number): string[] {
+    const from = this.lastDrawn();
+    if (!from || !this.cursor || this.bend) return [];
+    const to = this.aimAt(this.cursor, this.shiftHeld);
+    const len = Math.hypot(to[0] - from[0], to[1] - from[1]);
+    const ang = (Math.atan2(-(to[1] - from[1]), to[0] - from[0]) * 180) / Math.PI;
+    const text = this.typed ? `${this.typed}▏mm  ↵` : `${fmt(len)} mm  ∠ ${fmt((ang + 360) % 360)}°`;
+    const at: Vec2 = [this.cursor[0] + px(14), this.cursor[1] - px(14)];
+    return [`<text class="measure-label readout${this.typed ? ' typing' : ''}" x="${n(at[0])}" y="${n(at[1])}" font-size="${n(px(12))}">${text}</text>`];
+  }
+
   /** Dots for drawn points, and the handles of curved ones. */
   private pathHandles(pts: PathPoint[], px: (v: number) => number, firstBig = false): string[] {
     const out: string[] = [];
@@ -1018,7 +1117,7 @@ export class Editor {
       }
       if (this.pen) {
         out.push(this.spanPath(this.pen.parent, this.pen.edge, this.pen.span));
-        const pts: PathPoint[] = [{ p: this.pen.start }, ...this.pen.points, ...(c && !this.bend ? [{ p: this.snapPt(c) }] : [])];
+        const pts: PathPoint[] = [{ p: this.pen.start }, ...this.pen.points, ...(c && !this.bend ? [{ p: this.aimAt(c, this.shiftHeld) }] : [])];
         out.push(`<path class="draft" d="${pathData(pts, n)}"/>`);
         out.push(...this.pathHandles([{ p: this.pen.start }, ...this.pen.points], px));
       }
@@ -1042,8 +1141,9 @@ export class Editor {
       }
     }
     if (this.tool === 'measure') out.push(...this.measureOverlay(px));
+    out.push(...this.segmentReadout(px));
     if (this.tool === 'cut' && this.cut) {
-      const pts: PathPoint[] = [...this.cut.points, ...(c && !this.bend ? [{ p: this.snapPt(c) }] : [])];
+      const pts: PathPoint[] = [...this.cut.points, ...(c && !this.bend ? [{ p: this.aimAt(c, this.shiftHeld) }] : [])];
       out.push(`<path class="draft cut" d="${pathData(pts, n)}"/>`);
       out.push(...this.pathHandles(this.cut.points, px, true));
     }

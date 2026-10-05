@@ -6,6 +6,7 @@ import { BoxPreview } from '../preview3d';
 import type { Appearance, Decal, Dieline, ExportOptions, FoldMode, Vec2 } from '../types';
 import { bindTexture, loadTexture, saveTexture } from '../texture';
 import { $, buildSwatches, el, syncSwatches, toast } from '../ui';
+import { cutThrough } from './cutthrough';
 import { Editor, type Tool } from './editor';
 import {
   addTabJoints, BASE_ID, clone, layout, makeCustom, newDesign, overlaps, sanitizeDesign, toDieline, type AdvancedDesign,
@@ -249,8 +250,18 @@ export class AdvancedTab {
       this.syncPlay();
     };
     $('#adv-play').addEventListener('click', () => this.preview.animateTo(this.fold > 0.5 ? 0 : 1));
+    $('#adv-flip').addEventListener('click', () => this.flipOver());
     $<HTMLInputElement>('#adv-spin').addEventListener('change', (e) => (this.preview.autoRotate = (e.target as HTMLInputElement).checked));
     this.syncPlay();
+  }
+
+  /** Turns the assembled box upside down: the base on top instead of on the table. */
+  flipOver() {
+    this.editor.checkpoint();
+    const [x] = this.design.rotation ?? [90, 0, 0];
+    this.design.rotation = x < 0 ? [90, 0, 0] : [-90, 0, 0];
+    this.reframe = true;
+    this.editor.changed();
   }
 
   private syncPlay() {
@@ -328,6 +339,7 @@ export class AdvancedTab {
       } else {
         host.append(el('p', { className: 'hint', textContent: 'Drag the corners. Double-click an edge to add a corner; select a corner and press Delete to remove it.' }));
       }
+      host.append(el('div', { className: 'btn-row' }, this.cutThroughButton(BASE_ID)));
       if (b.holes.length) host.append(el('div', { className: 'btn-row' }, button(`Remove cut-outs (${b.holes.length})`, () => edit('holes', () => (b.holes = [])))));
       host.append(el('p', { className: 'hint', textContent: 'The base lies on the table; walls fold up from it.' }));
       this.renderPanelList(host);
@@ -440,6 +452,7 @@ export class AdvancedTab {
     host.append(copies);
 
     const joints = el('div', { className: 'btn-row' });
+    joints.append(this.cutThroughButton(p.id));
     const tabs = button('Add tab & slot joints', () => {
       const trial = clone(this.design);
       const n = addTabJoints(trial, p.id);
@@ -464,6 +477,26 @@ export class AdvancedTab {
     actions.append(button('Delete panel', () => this.editor.deleteSelection(), 'btn small danger'));
     host.append(actions);
     this.renderPanelList(host);
+  }
+
+  /** "Cut where panels pass through": exact openings for legs, posts and dividers. */
+  private cutThroughButton(id: string): HTMLElement {
+    const b = el('button', { className: 'btn small', textContent: 'Cut where panels pass through' });
+    b.title = 'Once folded, wherever other panels go through this one (table legs through a shelf, a divider through a lid), cut an opening exactly their size';
+    b.addEventListener('click', () => {
+      const trial = clone(this.design);
+      const res = cutThrough(trial, id);
+      if (!res.openings) {
+        toast(res.problem ?? 'Nothing passes through this panel when folded.');
+        return;
+      }
+      this.editor.checkpoint();
+      Object.assign(this.design, trial);
+      this.editor.changed();
+      this.renderInspector();
+      toast(`Cut ${res.openings} opening${res.openings === 1 ? '' : 's'}.`);
+    });
+    return b;
   }
 
   /** A compact list of all panels, for selecting ones that are hard to click. */
