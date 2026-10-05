@@ -2,7 +2,7 @@ import { difference, intersection, union, type MultiPolygon, type Pair, type Rin
 import { Vector3 } from 'three';
 import { localMatrices } from '../geometry/fold';
 import type { Dieline, Vec2 } from '../types';
-import { BASE_ID, basePoly, layout, localPoly, rawPanels, toLocal, type AdvancedDesign } from './model';
+import { basePoly, layout, localPoly, rawPanels, rootBase, toLocal, type AdvancedDesign } from './model';
 
 export interface CutThroughResult {
   /** How many openings were cut (holes inside the panel plus notches in its edge). */
@@ -125,11 +125,13 @@ export function cutThrough(d: AdvancedDesign, id: string): CutThroughResult {
   const changed = newOutline.length !== W.poly.length || newOutline.some((p) => !W.poly.some((q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6));
   const openings = regions.length;
 
-  if (id === BASE_ID) {
-    const oldPoly = basePoly(d.base);
-    if (changed && !remapChildren(d, id, oldPoly, newOutline)) return { openings: 0, problem: 'An opening would cut through an edge that has panels attached.' };
-    if (changed) d.base.points = newOutline;
-    d.base.holes = newHoles;
+  const root = rootBase(d, id);
+  if (root) {
+    // A base: its frame is the sheet, moved to where the piece sits.
+    const outlineLocal = newOutline.map((q) => toLocal(W, q));
+    if (changed && !remapChildren(d, id, basePoly(root), outlineLocal)) return { openings: 0, problem: 'An opening would cut through an edge that has panels attached.' };
+    if (changed) root.points = outlineLocal;
+    root.holes = newHoles.map((h) => h.map((q) => toLocal(W, q)));
     return { openings };
   }
 

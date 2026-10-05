@@ -3,7 +3,7 @@ import { Matrix4, Vector3 } from 'three';
 import { foldedBounds, localMatrices } from '../geometry/fold';
 import { finish } from '../geometry/styles';
 import { pointInPoly } from '../geometry/surface';
-import type { Decal, Dieline, Face, Panel, PanelKind, Texture, Vec2 } from '../types';
+import type { Decal, Dieline, Face, Panel, PanelKind, PieceInfo, Texture, Vec2 } from '../types';
 
 /**
  * A box drawn from scratch in the Advanced tab.
@@ -24,6 +24,31 @@ export interface AdvancedDesign {
   decals?: Decal[];
   /** A painted texture over the whole sheet (see Texture). */
   texture?: Texture;
+  /** Further pieces cut from the same sheet: a lid, a sleeve, an insert… */
+  pieces?: ExtraPiece[];
+}
+
+/** How an extra piece goes together with the main one. */
+export type PieceRole = 'lid' | 'sleeve' | 'insert';
+
+/**
+ * A separate piece with its own base panel (other panels hang off it as usual). Its base
+ * has its own (u, v) frame whose origin sits at `at` on the sheet.
+ */
+export interface ExtraPiece {
+  /** The id of this piece's base panel. */
+  id: string;
+  name?: string;
+  base: BasePanel;
+  at: Vec2;
+  /** How its base sits once assembled (Euler degrees). */
+  rotation: [number, number, number];
+  role: PieceRole;
+  /**
+   * Insert only: glued against panel `anchor` (of the main piece), with point `from` (in
+   * this base's frame) landing on point `to` (in the anchor's frame), `z` mm out from it.
+   */
+  place?: { anchor: string; from: Vec2; to: Vec2; z: number };
 }
 
 /**
@@ -72,6 +97,10 @@ export interface CustomPanel {
   face?: FaceSpec;
   /** Optional custom fold path (see Panel.motion); dropped when the angle is edited. */
   motion?: [number, number][];
+  /** Fold path over the whole animation (see Panel.timeline); dropped when the angle is edited. */
+  timeline?: [number, number][];
+  /** Hinged lid: extra angle when opened in the preview (see Panel.open). */
+  open?: number;
   /** Cut-outs, in the panel's (u, v) frame. */
   holes: Vec2[][];
 }
@@ -102,6 +131,8 @@ export interface Placed {
   hinge: number;
   depth: number;
   panel?: CustomPanel;
+  /** The base panel of the piece this panel belongs to. */
+  root: string;
 }
 
 const add = (a: Vec2, b: Vec2): Vec2 => [a[0] + b[0], a[1] + b[1]];
@@ -117,6 +148,21 @@ export function toSheet(p: Placed, [u, v]: Vec2): Vec2 {
 export function toLocal(p: Placed, s: Vec2): Vec2 {
   const d = sub(s, p.origin);
   return [dot(d, p.U), dot(d, p.V)];
+}
+
+/** Whether `id` is a base panel: the main one or an extra piece's. */
+export function isRoot(d: AdvancedDesign, id: string): boolean {
+  return id === BASE_ID || !!d.pieces?.some((p) => p.id === id);
+}
+
+/** The base panel with id `id` (main or extra piece). */
+export function rootBase(d: AdvancedDesign, id: string): BasePanel | undefined {
+  return id === BASE_ID ? d.base : d.pieces?.find((p) => p.id === id)?.base;
+}
+
+/** Bases in order: the main one, then the extra pieces. */
+function roots(d: AdvancedDesign): { id: string; base: BasePanel; at: Vec2 }[] {
+  return [{ id: BASE_ID, base: d.base, at: [0, 0] }, ...(d.pieces ?? []).map((p) => ({ id: p.id, base: p.base, at: p.at }))];
 }
 
 export function basePoly(b: BasePanel): Vec2[] {
@@ -153,13 +199,15 @@ export function outwardNormal(poly: Vec2[], k: number): Vec2 {
  */
 export function layout(d: AdvancedDesign): Map<string, Placed> {
   const out = new Map<string, Placed>();
-  const bp = basePoly(d.base);
-  out.set(BASE_ID, {
-    id: BASE_ID, poly: bp, holes: d.base.holes, origin: [0, 0], U: [1, 0], V: [0, 1], hinge: 0, depth: 0,
-  });
+  for (const r of roots(d)) {
+    const mv = ([x, y]: Vec2): Vec2 => [x + r.at[0], y + r.at[1]];
+    out.set(r.id, {
+      id: r.id, poly: basePoly(r.base).map(mv), holes: r.base.holes.map((h) => h.map(mv)), origin: r.at, U: [1, 0], V: [0, 1], hinge: 0, depth: 0, root: r.id,
+    });
+  }
   const children = new Map<string, CustomPanel[]>();
   for (const p of d.panels) children.set(p.parent, [...(children.get(p.parent) ?? []), p]);
-  const queue = [BASE_ID];
+  const queue = roots(d).map((r) => r.id);
   while (queue.length) {
     const parentId = queue.shift()!;
     const parent = out.get(parentId)!;
@@ -172,7 +220,7 @@ export function layout(d: AdvancedDesign): Map<string, Placed> {
       const U = mul(sub(b, a), 1 / edgeLen);
       const V = outwardNormal(parent.poly, p.edge);
       const placed: Placed = {
-        id: p.id, poly: [], holes: [], origin: add(a, mul(U, p.inset0)), U, V, hinge, depth: parent.depth + 1, panel: p,
+        id: p.id, poly: [], holes: [], origin: add(a, mul(U, p.inset0)), U, V, hinge, depth: parent.depth + 1, panel: p, root: parent.root,
       };
       placed.poly = localPoly(p, hinge).map((q) => toSheet(placed, q));
       placed.holes = p.holes.map((h) => h.map((q) => toSheet(placed, q)));
@@ -188,11 +236,12 @@ const KIND: Record<CustomKind, PanelKind> = { wall: 'face', flap: 'flap', glue: 
 /** Panels in layout coordinates (base at the origin), before the sheet is normalised. */
 export function rawPanels(d: AdvancedDesign): Panel[] {
   const panels: Panel[] = [];
+  const pieceOf = new Map(roots(d).map((r, i) => [r.id, i]));
   for (const pl of layout(d).values()) {
     const p = pl.panel;
     panels.push({
       id: pl.id,
-      piece: 0,
+      piece: pieceOf.get(pl.root) ?? 0,
       kind: p ? KIND[p.kind] : 'face',
       poly: pl.poly.map((q) => [q[0], q[1]] as Vec2),
       ...(pl.holes.length ? { holes: pl.holes.map((h) => h.map((q) => [q[0], q[1]] as Vec2)) } : {}),
@@ -204,6 +253,8 @@ export function rawPanels(d: AdvancedDesign): Panel[] {
             stage: Math.max(1, Math.round(p.order)),
             offset: p.layer,
             ...(p.motion ? { motion: p.motion } : {}),
+            ...(p.timeline ? { timeline: p.timeline } : {}),
+            ...(p.open ? { open: p.open } : {}),
           }
         : {}),
     });
@@ -215,11 +266,21 @@ export function rawPanels(d: AdvancedDesign): Panel[] {
 export function toDieline(d: AdvancedDesign): Dieline {
   const panels = rawPanels(d);
   applyLayers(panels, d.thickness);
+  const placed = layout(d);
+  const extra: PieceInfo[] = (d.pieces ?? []).map((pc, i) => {
+    const anchor = pc.place && placed.get(pc.place.anchor);
+    return {
+      index: i + 1, root: pc.id, rotation: pc.rotation, role: pc.role,
+      ...(pc.place && anchor
+        ? { place: { anchor: pc.place.anchor, from: toSheet(placed.get(pc.id)!, pc.place.from), to: toSheet(anchor, pc.place.to), z: pc.place.z, arrive: [0.4, 0.7] as [number, number] } }
+        : {}),
+    };
+  });
   const dl = finish({
     panels,
     faces: designFaces(d),
     // The base lies on the ground, walls fold up.
-    pieces: [{ index: 0, root: BASE_ID, rotation: d.rotation ?? [90, 0, 0], role: 'base' }],
+    pieces: [{ index: 0, root: BASE_ID, rotation: d.rotation ?? [90, 0, 0], role: 'base' }, ...extra],
     width: 0,
     height: 0,
     outer: [0, 0, 0],
@@ -237,6 +298,7 @@ export function toDieline(d: AdvancedDesign): Dieline {
 function applyLayers(panels: Panel[], thickness: number) {
   const mats = localMatrices({ panels } as Dieline, 1);
   const tol = Math.max(thickness * 1.5, 0.5);
+  // (Only within a piece: each piece's frames are relative to its own base.)
   const frames = new Map(panels.map((p) => [p.id, { m: mats.get(p.id)!, inv: mats.get(p.id)!.clone().invert() }]));
   for (const A of panels) {
     if (!A.offset) continue;
@@ -245,7 +307,7 @@ function applyLayers(panels: Panel[], thickness: number) {
     const samples: Vec2[] = [c, ...A.poly.map((q) => [c[0] + (q[0] - c[0]) * 0.7, c[1] + (q[1] - c[1]) * 0.7] as Vec2)];
     const fa = frames.get(A.id)!;
     const overlapsSomething = panels.some((B) => {
-      if (B === A) return false;
+      if (B === A || B.piece !== A.piece) return false;
       const fb = frames.get(B.id)!;
       return samples.some((s) => {
         const w = new Vector3(s[0], -s[1], 0).applyMatrix4(fa.m).applyMatrix4(fb.inv);
@@ -262,7 +324,7 @@ function designFaces(d: AdvancedDesign): Face[] {
   let walls = 0;
   for (const pl of layout(d).values()) {
     const p = pl.panel;
-    const spec = p ? p.face : d.base.face;
+    const spec = p ? p.face : rootBase(d, pl.id)?.face;
     if (p && !spec && p.kind !== 'wall') continue;
     if (p) walls++;
     let corners: Vec2[];
@@ -283,7 +345,7 @@ function designFaces(d: AdvancedDesign): Face[] {
     const auto = p ? Math.round((Math.atan2(pl.V[0], -pl.V[1]) * 180) / Math.PI / 90) * 90 : 0;
     faces.push({
       id: pl.id,
-      label: spec?.label ?? (p ? `${p.kind === 'wall' ? 'Wall' : 'Panel'} ${walls}` : 'Base'),
+      label: spec?.label ?? (p ? `${p.kind === 'wall' ? 'Wall' : 'Panel'} ${walls}` : pl.id === BASE_ID ? 'Base' : (d.pieces?.find((x) => x.id === pl.id)?.name ?? 'Piece base')),
       rect: { x, y, w, h },
       rotation: spec?.rotation ?? auto,
     });
@@ -353,7 +415,7 @@ export function uid(): string {
  * are end pieces and carry nothing.
  */
 export function canCarry(d: AdvancedDesign, id: string): boolean {
-  if (id === BASE_ID) return true;
+  if (isRoot(d, id)) return true;
   return d.panels.find((p) => p.id === id)?.kind === 'wall';
 }
 
@@ -364,7 +426,7 @@ export function canCarry(d: AdvancedDesign, id: string): boolean {
  */
 export function freeSpans(d: AdvancedDesign, id: string, edge: number, placed = layout(d)): [number, number][] {
   const pl = placed.get(id);
-  if (!pl || (id !== BASE_ID && edge === 0) || edge < 0 || edge >= pl.poly.length) return [];
+  if (!pl || (!isRoot(d, id) && edge === 0) || edge < 0 || edge >= pl.poly.length) return [];
   const [a, b] = edgeOf(pl.poly, edge);
   const L = len(sub(b, a));
   const taken = d.panels
@@ -389,7 +451,7 @@ export function makeChild(d: AdvancedDesign, parentId: string, edge: number, spa
   const fullLen = len(sub(b, a));
   const [u0, u1] = span ?? [0, fullLen];
   const edgeLen = u1 - u0;
-  const onBase = parentId === BASE_ID;
+  const onBase = isRoot(d, parentId);
   // Walls off the base; smaller tapered flaps off everything else.
   const depth = onBase ? Math.round(Math.min(edgeLen, 100) * 0.8) : Math.round(Math.min(20, edgeLen * 0.4));
   const taper = onBase ? 0 : Math.min(depth, edgeLen / 4);
@@ -406,6 +468,26 @@ export function makeChild(d: AdvancedDesign, parentId: string, edge: number, spa
     layer: 0,
     holes: [],
   };
+}
+
+/** A new separate piece (a square base) to the right of everything, sitting on top as a lid. */
+export function addPiece(d: AdvancedDesign): ExtraPiece {
+  const xs = [...layout(d).values()].flatMap((pl) => pl.poly.map((q) => q[0]));
+  const ys = [...layout(d).values()].flatMap((pl) => pl.poly.map((q) => q[1]));
+  const n = (d.pieces?.length ?? 0) + 2;
+  const piece: ExtraPiece = {
+    id: `piece-${uid()}`, name: `Piece ${n}`, base: { width: 100, height: 100, holes: [] },
+    at: [Math.max(...xs) + 30, Math.min(...ys)], rotation: [-90, 0, 0], role: 'lid',
+  };
+  (d.pieces ??= []).push(piece);
+  return piece;
+}
+
+/** Removes an extra piece and everything on it. */
+export function removePiece(d: AdvancedDesign, id: string) {
+  removePanel(d, id);
+  d.pieces = (d.pieces ?? []).filter((p) => p.id !== id);
+  if (!d.pieces.length) delete d.pieces;
 }
 
 /** Removes a panel and everything attached to it. */
@@ -508,7 +590,8 @@ export function mirrorCopy(d: AdvancedDesign, id: string): string | null {
 
 /** The editable outline of a panel in its own frame (base: sheet), for vertex editing. */
 export function editablePoints(d: AdvancedDesign, id: string): Vec2[] | null {
-  if (id === BASE_ID) return basePoly(d.base);
+  const root = rootBase(d, id);
+  if (root) return basePoly(root);
   const p = d.panels.find((x) => x.id === id);
   const pl = layout(d).get(id);
   if (!p || !pl) return null;
@@ -517,8 +600,9 @@ export function editablePoints(d: AdvancedDesign, id: string): Vec2[] | null {
 
 /** Switches a panel to a free-form outline so its corners can be dragged. */
 export function makeCustom(d: AdvancedDesign, id: string) {
-  if (id === BASE_ID) {
-    d.base.points = basePoly(d.base).map((q) => [q[0], q[1]] as Vec2);
+  const root = rootBase(d, id);
+  if (root) {
+    root.points = basePoly(root).map((q) => [q[0], q[1]] as Vec2);
     return;
   }
   const p = d.panels.find((x) => x.id === id);
@@ -533,8 +617,9 @@ export function makeCustom(d: AdvancedDesign, id: string) {
  */
 export function insertVertex(d: AdvancedDesign, id: string, k: number, at: Vec2) {
   makeCustom(d, id);
-  if (id === BASE_ID) {
-    d.base.points!.splice(k + 1, 0, at);
+  const root = rootBase(d, id);
+  if (root) {
+    root.points!.splice(k + 1, 0, at);
   } else {
     const p = d.panels.find((x) => x.id === id)!;
     if (p.shape.type !== 'custom' || k < 1) return;
@@ -547,9 +632,10 @@ export function insertVertex(d: AdvancedDesign, id: string, k: number, at: Vec2)
 /** Removes corner `k` (never the base's last three or a hinge end). */
 export function deleteVertex(d: AdvancedDesign, id: string, k: number) {
   makeCustom(d, id);
-  if (id === BASE_ID) {
-    if (d.base.points!.length <= 3) return;
-    d.base.points!.splice(k, 1);
+  const root = rootBase(d, id);
+  if (root) {
+    if (root.points!.length <= 3) return;
+    root.points!.splice(k, 1);
   } else {
     const p = d.panels.find((x) => x.id === id)!;
     if (p.shape.type !== 'custom' || k < 2 || p.shape.points.length <= 1) return;
@@ -567,8 +653,9 @@ export function deleteVertex(d: AdvancedDesign, id: string, k: number) {
 /** Moves corner `k` of a panel's outline to `to` (in the panel's own frame). */
 export function moveVertex(d: AdvancedDesign, id: string, k: number, to: Vec2) {
   makeCustom(d, id);
-  if (id === BASE_ID) {
-    d.base.points![k] = to;
+  const root = rootBase(d, id);
+  if (root) {
+    root.points![k] = to;
     return;
   }
   const p = d.panels.find((x) => x.id === id)!;
@@ -586,9 +673,10 @@ export function setEdgeLength(d: AdvancedDesign, id: string, k: number, length: 
   const pl = layout(d).get(id);
   if (!pl || !(length > 0.5)) return false;
   const N = pl.poly.length;
-  if (id === BASE_ID && !d.base.points) {
-    if (k % 2 === 0) d.base.width = length;
-    else d.base.height = length;
+  const root = rootBase(d, id);
+  if (root && !root.points) {
+    if (k % 2 === 0) root.width = length;
+    else root.height = length;
     return true;
   }
   const p = d.panels.find((x) => x.id === id);
@@ -615,7 +703,7 @@ export function setEdgeLength(d: AdvancedDesign, id: string, k: number, length: 
   // Free-form: slide one end of the edge along it (never a hinge corner).
   const pts = editablePoints(d, id)!;
   const i = k, j = (k + 1) % N;
-  const fixed = id === BASE_ID ? [] : [0, 1];
+  const fixed = root ? [] : [0, 1];
   const [keep, move] = !fixed.includes(j) ? [i, j] : !fixed.includes(i) ? [j, i] : [-1, -1];
   if (move < 0) return false;
   const dir = sub(pts[move], pts[keep]);
@@ -644,7 +732,7 @@ export function addTabJoints(d: AdvancedDesign, id: string): number {
   const plans: { k: number; tabs: [number, number][]; W: Placed; winv: Matrix4 }[] = [];
 
   for (let k = 0; k < F.poly.length; k++) {
-    if ((id !== BASE_ID && k === 0) || used.has(k)) continue;
+    if ((!isRoot(d, id) && k === 0) || used.has(k)) continue;
     const [A, B] = edgeOf(F.poly, k);
     const L = len(sub(B, A));
     if (L < 8) continue;
@@ -715,8 +803,8 @@ export function addTabJoints(d: AdvancedDesign, id: string): number {
       const b = add(R1, mul(ew, c));
       const slot = [add(a, mul(q, lo)), add(b, mul(q, lo)), add(b, mul(q, hi)), add(a, mul(q, hi))];
       const W = plan.W;
-      if (W.id === BASE_ID) d.base.holes.push(slot);
-      else d.panels.find((p) => p.id === W.id)!.holes.push(slot.map((p) => toLocal(W, p)));
+      const local = slot.map((p) => toLocal(W, p));
+      (rootBase(d, W.id) ?? d.panels.find((p) => p.id === W.id)!).holes.push(local);
     }
   }
   let added = 0;
@@ -760,25 +848,52 @@ export function sanitizeDesign(raw: unknown): AdvancedDesign | null {
     if (Array.isArray(f.rect) && f.rect.length === 4) out.rect = f.rect.map((x) => num(x, -5000, 5000, 0)) as FaceSpec['rect'];
     return out;
   };
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const b = (r.base ?? {}) as Record<string, unknown>;
-  const basePts = pts(b.points);
-  const design: AdvancedDesign = {
-    version: 1,
-    name: typeof r.name === 'string' ? r.name.slice(0, 80) : 'Box',
-    thickness: num(r.thickness, 0.2, 10, 1.5),
-    color: typeof r.color === 'string' && /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : '#c9a46b',
-    base: {
+  const baseOf = (v: unknown): BasePanel => {
+    const b = (v ?? {}) as Record<string, unknown>;
+    const basePts = pts(b.points);
+    return {
       width: num(b.width, 1, 3000, 100),
       height: num(b.height, 1, 3000, 100),
       ...(basePts.length >= 3 ? { points: basePts } : {}),
       holes: holes(b.holes),
       ...(faceSpec(b.face) ? { face: faceSpec(b.face) } : {}),
-    },
+    };
+  };
+  const keys = (v: unknown) =>
+    Array.isArray(v) ? v.slice(0, 200).map((k) => pt(k)).filter((k): k is Vec2 => !!k).map(([a, b]) => [Math.min(1, Math.max(0, a)), Math.min(360, Math.max(-360, b))] as Vec2) : undefined;
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const design: AdvancedDesign = {
+    version: 1,
+    name: typeof r.name === 'string' ? r.name.slice(0, 80) : 'Box',
+    thickness: num(r.thickness, 0.2, 10, 1.5),
+    color: typeof r.color === 'string' && /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : '#c9a46b',
+    base: baseOf(r.base),
     panels: [],
   };
   if (Array.isArray(r.decals)) design.decals = sanitizeDecals(r.decals);
+  if (Array.isArray(r.pieces)) {
+    const roles: PieceRole[] = ['lid', 'sleeve', 'insert'];
+    design.pieces = r.pieces.slice(0, 8).flatMap((v): ExtraPiece[] => {
+      if (!v || typeof v !== 'object') return [];
+      const o = v as Record<string, unknown>;
+      if (typeof o.id !== 'string' || !o.id || o.id === BASE_ID) return [];
+      const rot = Array.isArray(o.rotation) && o.rotation.length === 3 ? (o.rotation.map((x) => num(x, -360, 360, 0)) as [number, number, number]) : ([-90, 0, 0] as [number, number, number]);
+      const pl = o.place as Record<string, unknown> | undefined;
+      return [{
+        id: o.id.slice(0, 40),
+        ...(typeof o.name === 'string' ? { name: o.name.slice(0, 40) } : {}),
+        base: baseOf(o.base),
+        at: pt(o.at) ?? [0, 0],
+        rotation: rot,
+        role: roles.includes(o.role as PieceRole) ? (o.role as PieceRole) : 'lid',
+        ...(pl && typeof pl.anchor === 'string' && pt(pl.from) && pt(pl.to)
+          ? { place: { anchor: pl.anchor.slice(0, 40), from: pt(pl.from)!, to: pt(pl.to)!, z: num(pl.z, -50, 50, 0) } }
+          : {}),
+      }];
+    });
+    if (!design.pieces.length) delete design.pieces;
+  }
   const texture = sanitizeTexture(r.texture);
   if (texture) design.texture = texture;
   if (Array.isArray(r.rotation) && r.rotation.length === 3) {
@@ -806,9 +921,9 @@ export function sanitizeDesign(raw: unknown): AdvancedDesign | null {
       order: Math.round(num(p.order, 1, 50, 1)),
       layer: Math.round(num(p.layer, -5, 5, 0)),
       ...(faceSpec(p.face) ? { face: faceSpec(p.face) } : {}),
-      ...(Array.isArray(p.motion)
-        ? { motion: p.motion.slice(0, 200).map((k) => pt(k)).filter((k): k is Vec2 => !!k).map(([a, b]) => [Math.min(1, Math.max(0, a)), Math.min(360, Math.max(-360, b))] as Vec2) }
-        : {}),
+      ...(keys(p.motion) ? { motion: keys(p.motion) } : {}),
+      ...(keys(p.timeline) ? { timeline: keys(p.timeline) } : {}),
+      ...(typeof p.open === 'number' ? { open: num(p.open, -180, 180, 0) } : {}),
       holes: holes(p.holes),
     });
   }

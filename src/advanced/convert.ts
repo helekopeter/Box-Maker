@@ -1,5 +1,5 @@
 import type { Dieline, Panel, PanelKind, Vec2 } from '../types';
-import { BASE_ID, outwardNormal, type AdvancedDesign, type ChildShape, type CustomKind, type CustomPanel } from './model';
+import { BASE_ID, outwardNormal, type AdvancedDesign, type BasePanel, type ChildShape, type CustomKind, type CustomPanel, type ExtraPiece } from './model';
 
 const KIND: Record<PanelKind, CustomKind> = { face: 'wall', flap: 'flap', glue: 'glue' };
 const EPS = 0.01;
@@ -39,75 +39,101 @@ function withVertices(poly: Vec2[], pts: Vec2[]): Vec2[] {
 /**
  * Converts a dieline from the Simple tab into an Advanced design, so a ready-made box can
  * be edited freehand. Every hinged panel becomes a panel on its parent's edge; the outlines
- * are kept exactly, and rectangular ones are recognised so their handles work.
- *
- * Only the first piece is converted (Advanced designs are a single piece). Returns the
- * design and the number of panels that couldn't be carried over.
+ * are kept exactly, and rectangular ones are recognised so their handles work. Further
+ * pieces (a lid, a sleeve, an insert) become extra pieces of the design, where they were
+ * on the sheet. Returns the design and the number of panels that couldn't be carried over.
  */
 export function fromDieline(
   dl: Dieline,
   opts: { name: string; thickness: number; color: string },
-): { design: AdvancedDesign; skipped: number; droppedPieces: number; faceIds: Map<string, string> } {
-  const pieceInfo = dl.pieces[0];
-  const panels = dl.panels.filter((p) => p.piece === pieceInfo.index);
-  const byId = new Map(panels.map((p) => [p.id, p]));
-  const root = byId.get(pieceInfo.root)!;
-
-  // Put the base's top-left corner at the origin.
-  const xs = root.poly.map((q) => q[0]);
-  const ys = root.poly.map((q) => q[1]);
-  const off: Vec2 = [Math.min(...xs), Math.min(...ys)];
+): { design: AdvancedDesign; skipped: number; faceIds: Map<string, string> } {
+  // The main piece's base has its top-left corner at the origin; everything else keeps its
+  // place on the sheet relative to it.
+  const main = dl.pieces[0];
+  const mainRoot = dl.panels.find((p) => p.id === main.root)!;
+  const off: Vec2 = [Math.min(...mainRoot.poly.map((q) => q[0])), Math.min(...mainRoot.poly.map((q) => q[1]))];
   const mv = (q: Vec2): Vec2 => [q[0] - off[0], q[1] - off[1]];
-
-  const rootPoly = root.poly.map(mv);
-  const W = Math.max(...xs) - off[0];
-  const H = Math.max(...ys) - off[1];
-  const isRect =
-    rootPoly.length === 4 &&
-    near(rootPoly[0], [0, 0]) && near(rootPoly[1], [W, 0]) && near(rootPoly[2], [W, H]) && near(rootPoly[3], [0, H]);
 
   const design: AdvancedDesign = {
     version: 1,
     name: opts.name,
     thickness: opts.thickness,
     color: opts.color,
-    base: { width: W, height: H, ...(isRect ? {} : { points: rootPoly }), holes: (root.holes ?? []).map((h) => h.map(mv)) },
+    base: { width: 1, height: 1, holes: [] },
     panels: [],
-    rotation: pieceInfo.rotation,
+    rotation: main.rotation,
   };
 
-  // Outline of each converted panel in sheet coordinates, in the vertex order the
-  // Advanced model will rebuild it with (so edge indices line up).
-  const outlines = new Map<string, Vec2[]>([[root.id, isRect ? [[0, 0], [W, 0], [W, H], [0, H]] : rootPoly]]);
-  const idMap = new Map<string, string>([[root.id, BASE_ID]]);
-  // Sheet → panel (u, v) frame for every converted panel (the base's frame is the sheet).
-  const frames = new Map<string, (q: Vec2) => Vec2>([[root.id, (q) => q]]);
+  // Outline of each converted panel (layout coordinates), in the vertex order the Advanced
+  // model rebuilds it with, so edge indices line up; and each panel's sheet → (u, v) map.
+  const outlines = new Map<string, Vec2[]>();
+  const frames = new Map<string, (q: Vec2) => Vec2>();
+  const idMap = new Map<string, string>();
   const children = new Map<string, Panel[]>();
-  for (const p of panels) if (p.parent) children.set(p.parent, [...(children.get(p.parent) ?? []), p]);
-
+  for (const p of dl.panels) if (p.parent) children.set(p.parent, [...(children.get(p.parent) ?? []), p]);
   let skipped = 0;
-  const queue = [root.id];
-  while (queue.length) {
-    const parentId = queue.shift()!;
-    const parentOutline = outlines.get(parentId)!;
-    for (const p of children.get(parentId) ?? []) {
-      const converted = convertChild(p, parentOutline, idMap.get(parentId)!, mv);
-      if (!converted) {
-        skipped++;
-        continue;
+
+  for (const [i, info] of dl.pieces.entries()) {
+    const root = dl.panels.find((p) => p.id === info.root);
+    if (!root) continue;
+    const rootId = i === 0 ? BASE_ID : `piece-${i + 1}`;
+    // The base's own frame: its top-left corner, on the sheet at `at`.
+    const xs = root.poly.map((q) => mv(q)[0]);
+    const ys = root.poly.map((q) => mv(q)[1]);
+    const at: Vec2 = [Math.min(...xs), Math.min(...ys)];
+    const local = (q: Vec2): Vec2 => [mv(q)[0] - at[0], mv(q)[1] - at[1]];
+    const rootPoly = root.poly.map(local);
+    const W = Math.max(...xs) - at[0];
+    const H = Math.max(...ys) - at[1];
+    const isRect = rootPoly.length === 4 && near(rootPoly[0], [0, 0]) && near(rootPoly[1], [W, 0]) && near(rootPoly[2], [W, H]) && near(rootPoly[3], [0, H]);
+    const base: BasePanel = { width: W, height: H, ...(isRect ? {} : { points: rootPoly }), holes: (root.holes ?? []).map((h) => h.map(local)) };
+    if (i === 0) design.base = base;
+    else {
+      const piece: ExtraPiece = {
+        id: rootId, name: pieceName(info.role, i), base, at, rotation: info.rotation,
+        role: info.role === 'base' ? 'lid' : info.role,
+      };
+      (design.pieces ??= []).push(piece);
+    }
+    const outline = (isRect ? ([[0, 0], [W, 0], [W, H], [0, H]] as Vec2[]) : rootPoly).map(([x, y]) => [x + at[0], y + at[1]] as Vec2);
+    outlines.set(root.id, outline);
+    frames.set(root.id, (q) => [q[0] - at[0], q[1] - at[1]]);
+    idMap.set(root.id, rootId);
+
+    const queue = [root.id];
+    while (queue.length) {
+      const parentId = queue.shift()!;
+      const parentOutline = outlines.get(parentId)!;
+      for (const p of children.get(parentId) ?? []) {
+        const converted = convertChild(p, parentOutline, idMap.get(parentId)!, mv);
+        if (!converted) {
+          skipped++;
+          continue;
+        }
+        design.panels.push(converted.panel);
+        outlines.set(p.id, converted.outline);
+        frames.set(p.id, converted.toLocal);
+        idMap.set(p.id, converted.panel.id);
+        queue.push(p.id);
       }
-      design.panels.push(converted.panel);
-      outlines.set(p.id, converted.outline);
-      frames.set(p.id, converted.toLocal);
-      idMap.set(p.id, converted.panel.id);
-      queue.push(p.id);
     }
   }
+
+  // Inserts (glued inside the main piece) keep their place, in their own panels' frames.
+  for (const [i, info] of dl.pieces.entries()) {
+    const piece = design.pieces?.find((x) => x.id === `piece-${i + 1}`);
+    const anchor = info.place && idMap.get(info.place.anchor);
+    if (!piece || !info.place || !anchor) continue;
+    const fromFrame = frames.get(info.root)!;
+    const toFrame = frames.get(info.place.anchor)!;
+    piece.place = { anchor, from: fromFrame(mv(info.place.from)), to: toFrame(mv(info.place.to)), z: info.place.z };
+  }
+
   // Carry the printable faces over, keeping their names and which way is up.
   const faceIds = new Map<string, string>();
   for (const f of dl.faces) {
     const centre: Vec2 = [f.rect.x + f.rect.w / 2, f.rect.y + f.rect.h / 2];
-    const owner = byId.get(f.id) ?? panels.find((p) => p.kind !== 'glue' && inPoly(centre, p.poly));
+    const owner = dl.panels.find((p) => p.id === f.id) ?? dl.panels.find((p) => p.kind !== 'glue' && inPoly(centre, p.poly));
     const frame = owner && frames.get(owner.id);
     if (!owner || !frame) continue;
     const local = [[f.rect.x, f.rect.y], [f.rect.x + f.rect.w, f.rect.y + f.rect.h]].map((q) => frame(mv(q as Vec2)));
@@ -120,13 +146,18 @@ export function fromDieline(
       ] as [number, number, number, number],
     };
     const id = idMap.get(owner.id)!;
-    if (id === BASE_ID) design.base.face = spec;
+    const base = id === BASE_ID ? design.base : design.pieces?.find((x) => x.id === id)?.base;
+    if (base) base.face = spec;
     else design.panels.find((p) => p.id === id)!.face = spec;
     faceIds.set(f.id, id);
   }
   // Only walls carry other panels in Advanced designs.
   for (const p of design.panels) if (p.kind !== 'wall' && design.panels.some((c) => c.parent === p.id)) p.kind = 'wall';
-  return { design, skipped, droppedPieces: dl.pieces.length - 1, faceIds };
+  return { design, skipped, faceIds };
+}
+
+function pieceName(role: string, i: number): string {
+  return role === 'lid' ? 'Lid' : role === 'sleeve' ? 'Sleeve' : role === 'insert' ? 'Insert' : `Piece ${i + 1}`;
 }
 
 function inPoly([x, y]: Vec2, poly: Vec2[]): boolean {
@@ -208,6 +239,8 @@ function convertChild(p: Panel, parentOutline: Vec2[], parentId: string, mv: (q:
     order: p.stage ?? 1,
     layer: p.offset ?? 0,
     ...(p.motion ? { motion: p.motion.map(([t, v]) => [t, v] as Vec2) } : {}),
+    ...(p.timeline ? { timeline: p.timeline.map(([t, v]) => [t, v] as Vec2) } : {}),
+    ...(p.open ? { open: p.open } : {}),
     holes: (p.holes ?? []).map((h) => h.map((q) => toLocal(mv(q)))),
   };
   // The Advanced model rebuilds the outline from the frame; keep the same order.

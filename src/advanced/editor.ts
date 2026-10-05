@@ -3,7 +3,7 @@ import type { Dieline, Vec2 } from '../types';
 import { flattenPath, pathData, type PathPoint } from './curves';
 import {
   BASE_ID, deleteVertex, edgeOf, editablePoints, insertVertex, layout, makeChild, moveVertex,
-  canCarry, clone, copySubtree, setEdgeLength, flipPanel, mirrorCopy, overlaps, rawPanels, subtree, toLocal, freeSpans,
+  canCarry, clone, copySubtree, isRoot, removePiece, rootBase, toSheet, setEdgeLength, flipPanel, mirrorCopy, overlaps, rawPanels, subtree, toLocal, freeSpans,
   type AdvancedDesign, type Placed,
 } from './model';
 
@@ -18,7 +18,8 @@ interface View {
 type Drag =
   | { kind: 'pan'; start: Vec2; view: View }
   | { kind: 'depth' | 'taper0' | 'taper1' | 'width' | 'height'; id: string }
-  | { kind: 'vertex'; id: string; index: number };
+  | { kind: 'vertex'; id: string; index: number }
+  | { kind: 'move'; id: string; grab: Vec2 };
 
 interface PenState {
   parent: string;
@@ -103,7 +104,7 @@ export class Editor {
       this.undoStack = [];
       this.redoStack = [];
     }
-    if (this.selected && this.selected !== BASE_ID && !d.panels.some((p) => p.id === this.selected)) this.selected = BASE_ID;
+    if (this.selected && !isRoot(d, this.selected) && !d.panels.some((p) => p.id === this.selected)) this.selected = BASE_ID;
     this.changed(false);
     this.fit();
   }
@@ -218,6 +219,14 @@ export class Editor {
       return;
     }
     if (this.selected === BASE_ID) return;
+    if (isRoot(this.design, this.selected)) {
+      // An extra piece's base: the whole piece goes.
+      this.checkpoint();
+      removePiece(this.design, this.selected);
+      this.select(BASE_ID);
+      this.changed();
+      return;
+    }
     this.checkpoint();
     const doomed = this.selected;
     const parent = this.design.panels.find((p) => p.id === doomed)?.parent ?? BASE_ID;
@@ -234,7 +243,7 @@ export class Editor {
 
   /** Starts placing a copy of the selected panel (and what's on it) on a free edge. */
   startDuplicate(mirrored = false) {
-    if (!this.selected || this.selected === BASE_ID) return;
+    if (!this.selected || isRoot(this.design, this.selected)) return;
     this.setTool('select');
     this.placing = { id: this.selected, mirrored };
     this.hint();
@@ -243,7 +252,7 @@ export class Editor {
 
   /** A mirrored copy at the other end of the selected panel's edge; false if there's no room. */
   mirrorSelected(): boolean {
-    if (!this.selected || this.selected === BASE_ID) return false;
+    if (!this.selected || isRoot(this.design, this.selected)) return false;
     const before = clone(this.design);
     const id = mirrorCopy(this.design, this.selected);
     if (!id) return false;
@@ -258,7 +267,7 @@ export class Editor {
 
   /** Flips the selected panel (and what's on it) left to right. */
   flipSelected() {
-    if (!this.selected || this.selected === BASE_ID) return;
+    if (!this.selected || isRoot(this.design, this.selected)) return;
     this.checkpoint();
     flipPanel(this.design, this.selected);
     this.changed();
@@ -471,6 +480,9 @@ export class Editor {
         const index = +handle.getAttribute('data-index')!;
         this.selectedVertex = index;
         this.drag = { kind: 'vertex', id: this.selected, index };
+      } else if (kind === 'move') {
+        const pc = this.design.pieces?.find((x) => x.id === this.selected);
+        if (pc) this.drag = { kind: 'move', id: pc.id, grab: [p[0] - pc.at[0], p[1] - pc.at[1]] };
       } else {
         this.drag = { kind: kind as 'depth', id: this.selected };
       }
@@ -559,9 +571,9 @@ export class Editor {
     // Double-click an edge of the selected panel to add a corner there.
     const hit = this.nearestEdge(p, false);
     if (!hit || hit.panel !== this.selected) return;
-    if (this.selected !== BASE_ID && hit.edge === 0) return; // the hinge stays straight
+    if (!isRoot(this.design, this.selected) && hit.edge === 0) return; // the hinge stays straight
     this.checkpoint();
-    const local = this.selected === BASE_ID ? this.snapPt(hit.at) : toLocal(pl, this.snapPt(hit.at));
+    const local = toLocal(pl, this.snapPt(hit.at));
     insertVertex(this.design, this.selected, hit.edge, local);
     this.selectedVertex = hit.edge + 1;
     this.changed();
@@ -583,13 +595,21 @@ export class Editor {
   /** `shift` lets a narrowing handle move one side only (otherwise both stay symmetric). */
   private dragTo(d: Drag, p: Vec2, shift = false) {
     if (d.kind === 'pan') return;
+    if (d.kind === 'move') {
+      // Moving a whole extra piece around the sheet.
+      const pc = this.design.pieces?.find((x) => x.id === d.id);
+      if (pc) pc.at = this.snapPt([p[0] - d.grab[0], p[1] - d.grab[1]]);
+      this.changed();
+      return;
+    }
     const pl = this.placed.get(d.id);
     if (!pl) return;
-    if (d.id === BASE_ID) {
-      const b = this.design.base;
-      if (d.kind === 'width') b.width = Math.max(5, this.snapVal(p[0]));
-      if (d.kind === 'height') b.height = Math.max(5, this.snapVal(p[1]));
-      if (d.kind === 'vertex') moveVertex(this.design, BASE_ID, d.index, this.snapPt(p));
+    const root = rootBase(this.design, d.id);
+    if (root) {
+      const [u, v] = toLocal(pl, this.snapPt(p));
+      if (d.kind === 'width') root.width = Math.max(5, u);
+      if (d.kind === 'height') root.height = Math.max(5, v);
+      if (d.kind === 'vertex') moveVertex(this.design, d.id, d.index, [u, v]);
       this.changed();
       return;
     }
@@ -693,7 +713,9 @@ export class Editor {
       this.checkpoint();
       if (angleId) {
         panel!.angle = Math.max(-180, Math.min(180, v));
-        delete panel!.motion; // a custom fold path no longer matches the new angle
+        // A custom fold path no longer matches the new angle.
+        delete panel!.motion;
+        delete panel!.timeline;
       } else if (!setEdgeLength(this.design, id, +k!, v)) {
         this.undoStack.pop();
         return;
@@ -873,8 +895,7 @@ export class Editor {
     const pl = this.placed.get(cut.panel)!;
     this.checkpoint();
     const loop = flattenPath(cut.points, true);
-    if (cut.panel === BASE_ID) this.design.base.holes.push(loop);
-    else this.design.panels.find((x) => x.id === cut.panel)!.holes.push(loop.map((q) => toLocal(pl, q)));
+    (rootBase(this.design, cut.panel) ?? this.design.panels.find((x) => x.id === cut.panel)!).holes.push(loop.map((q) => toLocal(pl, q)));
     this.selected = cut.panel;
     this.changed();
     this.onSelect();
@@ -900,7 +921,7 @@ export class Editor {
   }
 
   private afterHistory() {
-    if (this.selected && this.selected !== BASE_ID && !this.design.panels.some((p) => p.id === this.selected)) this.selected = BASE_ID;
+    if (this.selected && !isRoot(this.design, this.selected) && !this.design.panels.some((p) => p.id === this.selected)) this.selected = BASE_ID;
     this.selectedVertex = null;
     this.changed();
     this.onSelect();
@@ -1046,20 +1067,26 @@ export class Editor {
     const many = (editablePoints(this.design, id)?.length ?? 0) > 16;
     const dot = (p: Vec2, kind: string, extra = '', cls = '') =>
       out.push(`<circle class="handle ${cls}" data-handle="${kind}" ${extra} cx="${n(p[0])}" cy="${n(p[1])}" r="${n(px(kind === 'vertex' && many ? 3.5 : 6))}"/>`);
-    const custom = id === BASE_ID ? !!this.design.base.points : pl.panel!.shape.type === 'custom';
+    const root = rootBase(this.design, id);
+    const custom = root ? !!root.points : pl.panel!.shape.type === 'custom';
+    if (root && id !== BASE_ID) {
+      // Extra pieces: a square handle at the corner moves the whole piece.
+      const c = toSheet(pl, [0, 0]);
+      const r = px(6);
+      out.push(`<rect class="handle move" data-handle="move" x="${n(c[0] - px(16) - r)}" y="${n(c[1] - px(16) - r)}" width="${n(2 * r)}" height="${n(2 * r)}"><title>Drag to move this piece on the sheet</title></rect>`);
+    }
     if (custom) {
       const pts = editablePoints(this.design, id)!;
       pts.forEach((q, i) => {
-        if (id !== BASE_ID && i < 2) return; // hinge corners follow the parent
-        const s = id === BASE_ID ? q : [pl.origin[0] + pl.U[0] * q[0] + pl.V[0] * q[1], pl.origin[1] + pl.U[1] * q[0] + pl.V[1] * q[1]] as Vec2;
+        if (!root && i < 2) return; // hinge corners follow the parent
+        const s = toSheet(pl, q);
         dot(s, 'vertex', `data-index="${i}"`, i === this.selectedVertex ? 'on' : '');
       });
       return out;
     }
-    if (id === BASE_ID) {
-      const b = this.design.base;
-      dot([b.width, b.height / 2], 'width');
-      dot([b.width / 2, b.height], 'height');
+    if (root) {
+      dot(toSheet(pl, [root.width, root.height / 2]), 'width');
+      dot(toSheet(pl, [root.width / 2, root.height]), 'height');
       return out;
     }
     const s = pl.panel!.shape;

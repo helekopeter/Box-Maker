@@ -89,7 +89,7 @@ $('#to-advanced').addEventListener('click', () => {
     return;
   }
   const name = `${STYLE_INFO[p.style].name} ${Math.round(p.length)}×${Math.round(p.width)}×${Math.round(p.height)}`;
-  const { design, skipped, droppedPieces, faceIds } = fromDieline(simple.dieline, { name, thickness: p.thickness, color: simple.state.look.color });
+  const { design, skipped, faceIds } = fromDieline(simple.dieline, { name, thickness: p.thickness, color: simple.state.look.color });
   const decals: Decal[] = simple.currentDecals
     .filter((d) => faceIds.has(d.face))
     .map((d) => ({ ...d, face: faceIds.get(d.face)! }));
@@ -98,7 +98,6 @@ $('#to-advanced').addEventListener('click', () => {
   show('advanced');
   const notes = [
     tex.lost ? 'The texture didn’t come across (the sheet is laid out differently).' : '',
-    droppedPieces ? 'Only the tray came across; Advanced designs are one piece.' : '',
     skipped ? `${skipped} panel(s) couldn't be converted.` : '',
   ].filter(Boolean);
   toast(notes.length ? notes.join(' ') : 'Now editing in Advanced. Undo (Ctrl+Z) brings back your previous design.');

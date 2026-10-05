@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addTabJoints, BASE_ID, clone, copySubtree, deleteVertex, flipPanel, freeSpans, mirrorCopy, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
-  rawPanels, removePanel, sanitizeDesign, setEdgeLength, toDieline, type AdvancedDesign,
+  addPiece, addTabJoints, BASE_ID, clone, copySubtree, deleteVertex, flipPanel, freeSpans, mirrorCopy, insertVertex, layout, makeChild, makeCustom, moveVertex, newDesign, overlaps,
+  rawPanels, removePanel, removePiece, sanitizeDesign, setEdgeLength, toDieline, type AdvancedDesign,
 } from '../src/advanced/model';
 import { Vector3 } from 'three';
 import { foldedBounds, localMatrices } from '../src/geometry/fold';
@@ -112,15 +112,14 @@ describe('converting Simple boxes to Advanced designs', () => {
     const { design, skipped } = fromDieline(original, { name: style, thickness: 2, color: '#c9a46b' });
     expect(skipped).toBe(0);
     const converted = toDieline(design);
-    const firstPiece = original.panels.filter((p) => p.piece === 0);
-    expect(converted.panels.length).toBe(firstPiece.length);
+    expect(converted.panels.length).toBe(original.panels.length);
     // Same assembled size as the original's first piece.
     const a = foldedBounds(original, 1, { thickness: 2 }, 0);
-    const b = foldedBounds(converted, 1, { thickness: 2 });
+    const b = foldedBounds(converted, 1, { thickness: 2 }, 0);
     for (const k of ['x', 'y', 'z'] as const) expect(b.max[k] - b.min[k]).toBeCloseTo(a.max[k] - a.min[k], 1);
     // Same total cut and fold length.
     const total = (dl: typeof original) => {
-      const { cuts, folds } = computeLines({ ...dl, panels: dl.panels.filter((p) => p.piece === 0) });
+      const { cuts, folds } = computeLines(dl);
       const L = (s: { a: number[]; b: number[] }) => Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
       return [cuts.reduce((n, s) => n + L(s), 0), folds.reduce((n, s) => n + L(s), 0)];
     };
@@ -322,5 +321,44 @@ describe('walls vs flaps', () => {
     }
     // Nothing to join on a panel that doesn't stand on anything.
     expect(addTabJoints(d, wall.id)).toBe(0);
+  });
+
+  it.each(['traylid', 'matchbox', 'cigarette'] as const)('keeps every piece of a %s when converting it', async (style) => {
+    const { generateDieline } = await import('../src/geometry/styles');
+    const { fromDieline } = await import('../src/advanced/convert');
+    const t = 1.5;
+    const dl = generateDieline({ style, length: 100, width: 70, height: 50, thickness: t, glueTab: 15, lidHeight: 30, lidClearance: 1 });
+    const { design, skipped } = fromDieline(dl, { name: style, thickness: t, color: '#c9a46b' });
+    expect(skipped).toBe(0);
+    expect(design.pieces?.length).toBe(dl.pieces.length - 1);
+    // Same panels, and every piece folds up where it did before.
+    const back = toDieline(sanitizeDesign(JSON.parse(JSON.stringify(design)))!);
+    expect(back.panels.length).toBe(dl.panels.length);
+    expect(back.pieces.map((p) => p.role)).toEqual(dl.pieces.map((p) => p.role));
+    for (const pc of dl.pieces) {
+      const a = foldedBounds(dl, 1, { thickness: t }, pc.index);
+      const b = foldedBounds(back, 1, { thickness: t }, pc.index);
+      for (const k of ['x', 'y', 'z'] as const) {
+        expect(b.min[k]).toBeCloseTo(a.min[k], 0);
+        expect(b.max[k]).toBeCloseTo(a.max[k], 0);
+      }
+    }
+    // Cut lines: the same outlines (one per piece, plus holes or cuts within them).
+    expect(chainSegments(computeLines(back).cuts).length).toBe(chainSegments(computeLines(dl).cuts).length);
+  });
+
+  it('adds and removes a separate piece', () => {
+    const d = tray();
+    const pc = addPiece(d);
+    d.panels.push(makeChild(d, pc.id, 0)!);
+    expect(layout(d).get(pc.id)!.poly[0][0]).toBeGreaterThan(100);
+    const dl = toDieline(d);
+    expect(dl.pieces.length).toBe(2);
+    expect(dl.pieces[1]).toMatchObject({ role: 'lid', root: pc.id });
+    expect(dl.panels.filter((p) => p.piece === 1).length).toBe(2);
+    expect(overlaps(d)).toEqual([]);
+    removePiece(d, pc.id);
+    expect(d.pieces).toBeUndefined();
+    expect(toDieline(d).panels.length).toBe(5);
   });
 });

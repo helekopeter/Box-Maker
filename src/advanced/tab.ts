@@ -9,7 +9,7 @@ import { $, buildSwatches, el, syncSwatches, toast } from '../ui';
 import { cutThrough } from './cutthrough';
 import { Editor, type Tool } from './editor';
 import {
-  addTabJoints, BASE_ID, clone, layout, makeCustom, newDesign, overlaps, sanitizeDesign, toDieline, type AdvancedDesign,
+  addPiece, addTabJoints, BASE_ID, clone, layout, makeCustom, rootBase, type PieceRole, newDesign, overlaps, sanitizeDesign, toDieline, type AdvancedDesign,
   type CustomKind, type CustomPanel,
 } from './model';
 
@@ -173,7 +173,8 @@ export class AdvancedTab {
     $('#adv-stats').innerHTML =
       `<div><span>Folded size</span><b>${r(L)} × ${r(W)} × ${r(H)} mm</b></div>` +
       `<div><span>Sheet</span><b>${r(this.dieline.width)} × ${r(this.dieline.height)} mm</b></div>` +
-      `<div><span>Panels</span><b>${this.design.panels.length + 1}</b></div>` +
+      `<div><span>Panels</span><b>${this.design.panels.length + 1 + (this.design.pieces?.length ?? 0)}</b></div>` +
+      (this.design.pieces?.length ? `<div><span>Pieces</span><b>${this.design.pieces.length + 1}</b></div>` : '') +
       (bad.length
         ? `<div class="warn">⚠ ${bad.length === 1 ? 'Two panels overlap' : `${bad.length} pairs of panels overlap`} on the sheet (shown in red), so this can't be cut from one piece. Make them smaller, narrow them with taper, or move them to another edge.</div>`
         : '') +
@@ -327,21 +328,53 @@ export class AdvancedTab {
       return b;
     };
 
-    if (id === BASE_ID) {
-      const b = this.design.base;
-      host.append(el('h2', { textContent: 'Base' }));
+    const rootB = rootBase(this.design, id);
+    if (rootB) {
+      const b = rootB;
+      const piece = this.design.pieces?.find((x) => x.id === id);
+      host.append(el('h2', { textContent: piece ? `${piece.name ?? 'Piece'} · base` : 'Base' }));
       if (!b.points) {
         host.append(
           field('Width', b.width, 'w', (v) => (b.width = v), { min: 5, unit: 'mm' }),
           field('Height', b.height, 'h', (v) => (b.height = v), { min: 5, unit: 'mm' }),
         );
-        host.append(el('div', { className: 'btn-row' }, button('Free-form shape', () => edit('shape', () => makeCustom(this.design, BASE_ID)))));
+        host.append(el('div', { className: 'btn-row' }, button('Free-form shape', () => edit('shape', () => makeCustom(this.design, id)))));
       } else {
         host.append(el('p', { className: 'hint', textContent: 'Drag the corners. Double-click an edge to add a corner; select a corner and press Delete to remove it.' }));
       }
-      host.append(el('div', { className: 'btn-row' }, this.cutThroughButton(BASE_ID)));
+      host.append(el('div', { className: 'btn-row' }, this.cutThroughButton(id)));
       if (b.holes.length) host.append(el('div', { className: 'btn-row' }, button(`Remove cut-outs (${b.holes.length})`, () => edit('holes', () => (b.holes = [])))));
-      host.append(el('p', { className: 'hint', textContent: 'The base lies on the table; walls fold up from it.' }));
+      if (piece) {
+        // How this piece goes together with the main one.
+        const name = el('input', { type: 'text', value: piece.name ?? '', maxLength: 40 });
+        name.addEventListener('input', () => edit('name', () => (piece.name = name.value.slice(0, 40))));
+        host.append(el('label', { className: 'row' }, 'Name', name));
+        const role = el('select', {});
+        const roles: [PieceRole, string][] = [['lid', 'Sits on top (lid)'], ['sleeve', 'Slides over (sleeve)'], ...(piece.place ? [['insert', 'Glued inside'] as [PieceRole, string]] : [])];
+        for (const [v, label] of roles) role.append(el('option', { value: v, textContent: label, selected: v === piece.role }));
+        role.addEventListener('change', () => edit('role', () => (piece.role = role.value as PieceRole)));
+        host.append(el('label', { className: 'row' }, 'Goes', role));
+        host.append(
+          el('div', { className: 'btn-row' },
+            button('Flip over', () => edit('rot', () => (piece.rotation = [piece.rotation[0] < 0 ? 90 : -90, piece.rotation[1], piece.rotation[2]]))),
+            button('Delete piece', () => this.editor.deleteSelection(), 'btn small danger'),
+          ),
+          field('Position x', piece.at[0], 'ax', (v) => (piece.at = [v, piece.at[1]]), { unit: 'mm' }),
+          field('Position y', piece.at[1], 'ay', (v) => (piece.at = [piece.at[0], v]), { unit: 'mm' }),
+          el('p', { className: 'hint', textContent: 'A separate piece cut from the same sheet. Drag the square handle at its corner to move it on the sheet.' }),
+        );
+      } else {
+        host.append(
+          el('p', { className: 'hint', textContent: 'The base lies on the table; walls fold up from it.' }),
+          el('div', { className: 'btn-row' }, button('Add a separate piece (lid, sleeve…)', () => {
+            this.editor.checkpoint();
+            const pc = addPiece(this.design);
+            this.editor.changed();
+            this.editor.select(pc.id);
+            this.editor.fit();
+          })),
+        );
+      }
       this.renderPanelList(host);
       return;
     }
@@ -410,7 +443,9 @@ export class AdvancedTab {
     const setAngle = (v: number) =>
       edit('angle', () => {
         p.angle = v;
-        delete p.motion; // a custom fold path no longer matches the new angle
+        // A custom fold path no longer matches the new angle.
+        delete p.motion;
+        delete p.timeline;
       });
     angle.addEventListener('input', () => {
       angleNum.value = angle.value;
@@ -501,8 +536,9 @@ export class AdvancedTab {
 
   /** A compact list of all panels, for selecting ones that are hard to click. */
   private renderPanelList(host: HTMLElement) {
-    if (!this.design.panels.length) return;
-    const list = el('details', { className: 'panel-list' }, el('summary', { textContent: `All panels (${this.design.panels.length + 1})` }));
+    if (!this.design.panels.length && !this.design.pieces?.length) return;
+    const total = this.design.panels.length + 1 + (this.design.pieces?.length ?? 0);
+    const list = el('details', { className: 'panel-list' }, el('summary', { textContent: `All panels (${total})` }));
     const add = (id: string, label: string, depth: number) => {
       const b = el('button', { className: `pl-item${id === this.editor.selected ? ' on' : ''}`, textContent: label });
       b.style.paddingLeft = `${8 + depth * 12}px`;
@@ -510,7 +546,6 @@ export class AdvancedTab {
       list.append(b);
     };
     const pls = layout(this.design);
-    add(BASE_ID, 'Base', 0);
     const walk = (parent: string, depth: number) => {
       for (const p of this.design.panels.filter((x) => x.parent === parent)) {
         if (!pls.has(p.id)) continue;
@@ -518,7 +553,12 @@ export class AdvancedTab {
         walk(p.id, depth + 1);
       }
     };
+    add(BASE_ID, 'Base', 0);
     walk(BASE_ID, 1);
+    for (const pc of this.design.pieces ?? []) {
+      add(pc.id, `${pc.name ?? 'Piece'} · base`, 0);
+      walk(pc.id, 1);
+    }
     host.append(list);
   }
 

@@ -23,7 +23,7 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
 3. **Choose a colour, a texture and decals** (text or uploaded images). For a texture, download the **Template PDF** (the sheet at its real size, with the cut and fold lines and each side's name written the right way up), paint over it in Photoshop or any image editor, keep the page size, save it as PNG or JPG and **Import** it. It shows on the 3D box and goes into the artwork of the export. If you change the box's size afterwards it's stretched to fit, and you get a warning. Decals: Drag them around on the 3D box. A decal that hangs over an edge wraps onto the next side like a sticker. If the two sides aren't next to each other on the flat sheet (across the glue seam, a lid edge, or the two top flaps), it is split automatically in the cut file.
 4. **Download an SVG or PDF.** The page is sized 1:1 to the sheet in millimetres. Set your **laser bed** size under Export (it's shared by every tab), and each tab warns when the cutting layout won't fit. Set **Copies** to cut several at once: they're packed onto bed-sized sheets (turned where that fits more in), and the panel says how many fit per sheet. A PDF gets a page per sheet, SVG a file per sheet.
 
-**Edit in Advanced** turns the current box into an Advanced design, keeping every panel, fold, colour and decal, so you can keep changing it freehand. For two-piece boxes only the tray carries over.
+**Edit in Advanced** turns the current box into an Advanced design, keeping every panel, fold, colour and decal, so you can keep changing it freehand. Boxes made of several pieces (tray + lid, matchbox, cigarette box) keep all of them.
 
 ### Shape Builder
 
@@ -51,6 +51,7 @@ Draw a box from scratch. You start with a single square (the base, which lies on
 - **Cut-out tool (C):** click inside a panel, draw a shape (corners or curves, as with the pen), and click the first point again (or press Enter).
 - **Exact drawing:** while drawing with the pen or cut-out tool, the length and angle of the next segment follow the pointer. Type a length and press Enter to place the next point exactly that far towards the pointer, and hold Shift to keep to 15° steps. Ctrl+Z (or Backspace) takes back the last point, and Ctrl+Shift+Z puts it back.
 - **Cut where panels pass through:** on a panel's settings, this cuts an opening wherever other panels go through it once folded (table legs through a shelf, a divider through a lid), exactly their size plus 0.2 mm. Openings inside the panel become holes, ones at its edge become notches.
+- **Several pieces:** on the base's settings, **Add a separate piece** starts another piece cut from the same sheet, such as a lid. Each piece has its own base, a name, how it goes together (sits on top as a lid, or slides over as a sleeve) and can be flipped over; drag the square handle at its corner to move it on the sheet.
 - **Flip over** (by the 3D view) turns the assembled box upside down, such as a table drawn top-down so it stands on its legs.
 - **Measure tool (M):** click two points or drag. It snaps to corners and edges and shows the distance, its horizontal and vertical parts and the angle.
 - **Sizes and angles:** the selected panel shows its edge lengths. Double-click a length or any fold angle to type a new value.

@@ -296,6 +296,7 @@ input[type='radio'], input[type='checkbox'] { accent-color: var(--accent); }
 .adv-svg .add:hover path { stroke: var(--accent-ink); }
 .adv-svg .handle { fill: #fff; stroke: #ff7a00; stroke-width: 2.5; vector-effect: non-scaling-stroke; cursor: grab; }
 .adv-svg .handle.small { stroke-width: 2; }
+.adv-svg .handle.move { cursor: move; }
 .adv-svg .handle.on, .adv-svg .handle:hover { fill: #ff7a00; }
 .adv-svg .edge-hover { stroke: #ff7a00; stroke-width: 5; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: 0.7; pointer-events: none; }
 .adv-svg .edge-hover.no { stroke: var(--cut); opacity: 0.5; }
