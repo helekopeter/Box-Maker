@@ -30,7 +30,7 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
 The last box style builds a simple 3D shape and gives you the box for it.
 
 1. **Pick a base shape:** rectangle, triangle, pentagon, hexagon, octagon or round. Round shapes are made of flat sides; you choose how many.
-2. **Extrude it** in one or more levels. Each level has a height and a top size: below 100% narrows it, above 100% widens it, and 0% brings it to a point, like a roof.
+2. **Extrude it** in one or more levels. Each level has a height and the size of its top in mm (width and depth for rectangles, the across size for other shapes): smaller than the level below narrows it, bigger widens it. The last level can come to a point, like a roof. Levels as big as the base follow it when you change the base size.
 3. **Choose a closed lid or an open top**, then set the material and colour as usual.
 
 The 3D view shows the folded box live, with its cutting layout below. The solid is unfolded into a net with:

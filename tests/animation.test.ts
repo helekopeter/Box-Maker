@@ -112,10 +112,10 @@ describe('Box Universe examples', () => {
 
 describe('Shape Maker nets', () => {
   const shapes: [string, Partial<ShapeSpec>][] = [
-    ['hexagon box', { shape: 'hexagon', levels: [{ height: 80, scale: 100 }] }],
-    ['house', { shape: 'rect', width: 80, depth: 80, levels: [{ height: 60, scale: 100 }, { height: 40, scale: 0 }] }],
-    ['pentagon frustum', { shape: 'pentagon', levels: [{ height: 60, scale: 60 }] }],
-    ['open octagon bowl', { shape: 'octagon', top: 'open', levels: [{ height: 40, scale: 140 }] }],
+    ['hexagon box', { shape: 'hexagon', levels: [{ height: 80, width: 0, depth: 0, size: 100 }] }],
+    ['house', { shape: 'rect', width: 80, depth: 80, levels: [{ height: 60, width: 80, depth: 80, size: 0 }, { height: 40, width: 0, depth: 0, size: 0 }] }],
+    ['pentagon frustum', { shape: 'pentagon', levels: [{ height: 60, width: 0, depth: 0, size: 60 }] }],
+    ['open octagon bowl', { shape: 'octagon', top: 'open', levels: [{ height: 40, width: 0, depth: 0, size: 140 }] }],
   ];
   it.each(shapes)('%s folds without passing through itself', (_n, over) => {
     const s = { ...newShape(), ...over } as ShapeSpec;

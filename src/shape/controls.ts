@@ -1,5 +1,5 @@
 import { $, el } from '../ui';
-import { newShape, profile, SHAPE_INFO, type BaseShape, type ShapeSpec } from './model';
+import { isPoint, newShape, profile, SHAPE_INFO, type BaseShape, type ShapeSpec } from './model';
 
 /** Top-view icon of a base shape. */
 export function shapeIcon(shape: BaseShape): string {
@@ -31,7 +31,14 @@ export class ShapeControls {
       b.dataset.shape = shape;
       b.innerHTML = `${shapeIcon(shape)}<span>${SHAPE_INFO[shape].name}</span>`;
       b.addEventListener('click', () => {
-        this.spec().shape = shape;
+        const s = this.spec();
+        // Levels that went straight up from the base still do in the new shape.
+        const keys = (sh: BaseShape) => (sh === 'rect' ? (['width', 'depth'] as const) : (['size'] as const));
+        for (const lv of s.levels) {
+          if (!keys(s.shape).every((k) => Math.abs(lv[k] - s[k]) < 0.01)) break;
+          [lv.width, lv.depth, lv.size] = [s.width, s.depth, s.size];
+        }
+        s.shape = shape;
         this.sync();
         this.changed();
       });
@@ -44,7 +51,19 @@ export class ShapeControls {
       $<HTMLInputElement>(id).addEventListener('input', (e) => {
         const v = parseFloat((e.target as HTMLInputElement).value);
         if (!Number.isFinite(v)) return;
-        this.spec()[key] = Math.min(max, Math.max(min, v));
+        const s = this.spec();
+        const old = s[key];
+        s[key] = Math.min(max, Math.max(min, v));
+        // Levels as wide as the base (straight up) keep following it.
+        if (key !== 'sides') {
+          let changed = false;
+          for (const lv of s.levels) {
+            if (Math.abs(lv[key] - old) > 0.01) break;
+            lv[key] = s[key];
+            changed = true;
+          }
+          if (changed) this.renderLevels();
+        }
         this.changed();
       });
     numInput('#shape-width', 'width', 5, 2000);
@@ -54,7 +73,8 @@ export class ShapeControls {
     $('#shape-add-level').addEventListener('click', () => {
       const levels = this.spec().levels;
       const last = levels[levels.length - 1];
-      levels.push({ height: Math.round(last.height / 2) || 20, scale: 100 });
+      // Carries straight on up from the level below.
+      levels.push({ height: Math.round(last.height / 2) || 20, width: last.width, depth: last.depth, size: last.size });
       this.sync();
       this.changed();
     });
@@ -107,28 +127,37 @@ export class ShapeControls {
       });
       row.append(el('label', { className: 'row' }, 'Height (mm)', height));
 
+      // The top's size in mm (rectangles: width and depth).
+      const s = this.spec();
+      const point = isPoint(s, lv);
+      const keys = s.shape === 'rect' ? (['width', 'depth'] as const) : (['size'] as const);
+      const labels = { width: 'Top width (mm)', depth: 'Top depth (mm)', size: 'Top size (mm)' };
+      for (const key of keys) {
+        const inp = el('input', { type: 'number', min: '1', step: '1', value: String(Math.round(lv[key] * 10) / 10), disabled: point });
+        inp.addEventListener('input', () => {
+          const v = parseFloat(inp.value);
+          if (!Number.isFinite(v)) return;
+          lv[key] = Math.min(4000, Math.max(1, v));
+          this.changed();
+        });
+        row.append(el('label', { className: 'row' }, labels[key], inp));
+      }
       // Only the last level may come to a point (nothing can sit on top of a point).
-      const min = last ? 0 : 5;
-      const range = el('input', { type: 'range', min: String(min), max: '200', step: '1', value: String(lv.scale) });
-      const pct = el('input', { type: 'number', min: String(min), max: '200', step: '1', value: String(lv.scale) });
-      const set = (v: number) => {
-        const wasPoint = lv.scale === 0;
-        lv.scale = Math.min(200, Math.max(min, v));
-        // Coming to a point (or leaving it) changes which controls make sense.
-        if (wasPoint !== (lv.scale === 0)) this.syncAfterLevels();
-        this.changed();
-      };
-      range.addEventListener('input', () => {
-        pct.value = range.value;
-        set(parseFloat(range.value));
-      });
-      pct.addEventListener('input', () => {
-        const v = parseFloat(pct.value);
-        if (!Number.isFinite(v)) return;
-        range.value = String(v);
-        set(v);
-      });
-      row.append(el('label', { className: 'row' }, 'Top size (%)', pct), el('div', { className: 'angle-row' }, range));
+      if (last) {
+        const cb = el('input', { type: 'checkbox', checked: point });
+        cb.addEventListener('change', () => {
+          if (cb.checked) {
+            lv.width = lv.depth = lv.size = 0;
+          } else {
+            // Back to the size of the level below (or the base).
+            const below = i ? levels[i - 1] : s;
+            [lv.width, lv.depth, lv.size] = [below.width, below.depth, below.size];
+          }
+          this.renderLevels();
+          this.changed();
+        });
+        row.append(el('label', { className: 'check' }, cb, 'Comes to a point'));
+      }
       host.append(row);
     });
     this.syncAfterLevels();
@@ -137,7 +166,7 @@ export class ShapeControls {
   /** The add button and the top choice depend on whether the shape ends in a point. */
   private syncAfterLevels() {
     const levels = this.spec().levels;
-    const pointy = levels[levels.length - 1].scale === 0;
+    const pointy = isPoint(this.spec(), levels[levels.length - 1]);
     const add = $<HTMLButtonElement>('#shape-add-level');
     add.disabled = pointy || levels.length >= 6;
     add.title = pointy ? 'The top comes to a point, so nothing can go on top' : '';

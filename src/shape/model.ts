@@ -11,8 +11,20 @@ export type BaseShape = 'rect' | 'triangle' | 'pentagon' | 'hexagon' | 'octagon'
 export interface Level {
   /** Height of this level in mm. */
   height: number;
-  /** Size of the top of this level, in % of its bottom (0 = a point). */
-  scale: number;
+  /** Size of the top of this level in mm: rectangles use width × depth, other shapes size. */
+  width: number;
+  depth: number;
+  size: number;
+}
+
+/** Whether a level's top comes to a point (all its top sizes are 0). */
+export function isPoint(s: ShapeSpec, lv: Level): boolean {
+  return s.shape === 'rect' ? lv.width === 0 && lv.depth === 0 : lv.size === 0;
+}
+
+/** A level whose top is the same size as the base (a straight extrusion). */
+export function straightLevel(s: Pick<ShapeSpec, 'width' | 'depth' | 'size'>, height: number): Level {
+  return { height, width: s.width, depth: s.depth, size: s.size };
 }
 
 export interface ShapeSpec {
@@ -50,7 +62,7 @@ export function newShape(): ShapeSpec {
     depth: 80,
     size: 100,
     sides: 16,
-    levels: [{ height: 80, scale: 100 }],
+    levels: [{ height: 80, width: 100, depth: 80, size: 100 }],
     top: 'closed',
     thickness: 1.5,
     color: '#c9a46b',
@@ -78,14 +90,15 @@ export function profile(s: ShapeSpec): Vec2[] {
 export function rings(s: ShapeSpec): Vector3[][] {
   const base = profile(s);
   const out: Vector3[][] = [];
-  let scale = 1;
   let z = 0;
   out.push(base.map(([x, y]) => new Vector3(x, y, 0)));
   for (const lv of s.levels) {
-    scale *= Math.max(0, lv.scale) / 100;
+    // Each level's top is the base outline stretched to its size (rectangles can stretch
+    // width and depth separately and still have flat sides).
+    const [sx, sy] = s.shape === 'rect' ? [lv.width / s.width, lv.depth / s.depth] : [lv.size / s.size, lv.size / s.size];
     z += lv.height;
-    out.push(base.map(([x, y]) => new Vector3(x * scale, y * scale, z)));
-    if (scale === 0) break; // nothing can sit on a point
+    out.push(base.map(([x, y]) => new Vector3(x * Math.max(0, sx), y * Math.max(0, sy), z)));
+    if (isPoint(s, lv)) break; // nothing can sit on a point
   }
   return out;
 }
@@ -333,18 +346,28 @@ export function sanitizeShape(raw: unknown): ShapeSpec | null {
   const d = newShape();
   const num = (v: unknown, lo: number, hi: number, dflt: number) =>
     typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt;
-  const levels = Array.isArray(r.levels)
+  const shape = (Object.keys(SHAPE_INFO) as BaseShape[]).includes(r.shape as BaseShape) ? (r.shape as BaseShape) : d.shape;
+  const base = { width: num(r.width, 5, 2000, d.width), depth: num(r.depth, 5, 2000, d.depth), size: num(r.size, 5, 2000, d.size) };
+  // Older shapes gave each level's top as a % of the level below; turn that into mm.
+  let f = 1;
+  const levels: Level[] = Array.isArray(r.levels)
     ? r.levels.slice(0, 6).map((l) => {
         const o = (l ?? {}) as Record<string, unknown>;
-        return { height: num(o.height, 1, 2000, 80), scale: num(o.scale, 0, 300, 100) };
+        const height = num(o.height, 1, 2000, 80);
+        if (typeof o.scale === 'number' && o.width === undefined && o.size === undefined) {
+          f *= num(o.scale, 0, 300, 100) / 100;
+          return { height, width: base.width * f, depth: base.depth * f, size: base.size * f };
+        }
+        const lv = { height, width: num(o.width, 0, 4000, base.width), depth: num(o.depth, 0, 4000, base.depth), size: num(o.size, 0, 4000, base.size) };
+        // A rectangle comes to a point only if both sizes are 0.
+        if (shape === 'rect' && (lv.width === 0) !== (lv.depth === 0)) (lv.width = Math.max(1, lv.width)), (lv.depth = Math.max(1, lv.depth));
+        return lv;
       })
     : d.levels;
   return {
     version: 1,
-    shape: (Object.keys(SHAPE_INFO) as BaseShape[]).includes(r.shape as BaseShape) ? (r.shape as BaseShape) : d.shape,
-    width: num(r.width, 5, 2000, d.width),
-    depth: num(r.depth, 5, 2000, d.depth),
-    size: num(r.size, 5, 2000, d.size),
+    shape,
+    ...base,
     sides: Math.round(num(r.sides, 6, 48, d.sides)),
     levels: levels.length ? levels : d.levels,
     top: r.top === 'open' ? 'open' : 'closed',
