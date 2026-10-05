@@ -153,6 +153,39 @@ describe('hexagon', () => {
   });
 });
 
+describe('gable top settings', () => {
+  const world = (d: ReturnType<typeof generateDieline>, id: string, q: number[]) =>
+    new Vector3(q[0], -q[1], 0).applyMatrix4(foldMatrices(d, 1, { thickness: 3 }).get(id)!);
+
+  it('uses the roof and handle heights', () => {
+    const plain = foldedBounds(generateDieline({ ...base, style: 'gable' }), 1, { thickness: 3 });
+    const tall = foldedBounds(generateDieline({ ...base, style: 'gable', gableRoof: 100, gableHandle: 40 }), 1, { thickness: 3 });
+    const h = (b: typeof plain) => b.max.y - b.min.y;
+    // Default: roof W/2 (≈61.5 mm) and handle 60 mm.
+    expect(h(tall) - h(plain)).toBeCloseTo(100 - 61.5 + 40 - 60, 0);
+  });
+
+  it.each([60, 40, 100])('tucks the side triangles in like a milk carton (roof %s mm)', (roof) => {
+    const d = generateDieline({ ...base, style: 'gable', gableTuck: true, gableRoof: roof });
+    const p = (id: string) => d.panels.find((x) => x.id === id)!;
+    const roofFront = p('roof-front');
+    const [rx1, ry0] = [Math.max(...roofFront.poly.map((q) => q[0])), Math.min(...roofFront.poly.map((q) => q[1]))];
+    const W = base.width + base.thickness;
+    // The corner triangle's top meets the ridge's end; the middle triangle's tip lies on the
+    // ridge, W/2 in from the end.
+    const corner = p('right-gusset-l');
+    const top = corner.poly.find((q) => Math.abs(q[0] - rx1) < 1e-6 && Math.abs(q[1] - ry0) < 1e-6)!;
+    expect(top).toBeTruthy();
+    expect(world(d, corner.id, top).distanceTo(world(d, roofFront.id, top))).toBeLessThan(3 * 1.5);
+    const gusset = p('right-gusset');
+    const tip = gusset.poly[2];
+    expect(world(d, gusset.id, tip).distanceTo(world(d, roofFront.id, [rx1 - W / 2, ry0]))).toBeLessThan(3 * 1.5);
+    // The fold between them is a crease, not a cut.
+    const { folds } = computeLines(d);
+    expect(folds.some((f) => Math.abs(f.a[0] - rx1) < 1e-3 && Math.abs(f.b[0] - rx1) < 1e-3 && Math.abs(Math.min(f.a[1], f.b[1]) - ry0) < 1e-3)).toBe(true);
+  });
+});
+
 describe('gable', () => {
   it('has a handle hole in both handle panels', () => {
     const d = generateDieline({ ...base, style: 'gable' });

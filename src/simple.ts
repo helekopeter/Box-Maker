@@ -3,6 +3,7 @@ import { DecalLayer, sanitizeDecals, sanitizeTexture } from './decals';
 import { bindTexture, loadTexture, previewLook, saveTexture } from './texture';
 import { bindCopies, copiesIds, downloadBox } from './export/download';
 import { buildSvg } from './export/svg';
+import { canTuckGable, gableDefaults } from './geometry/cartons';
 import { generateDieline, STYLE_INFO } from './geometry/styles';
 import { BoxPreview } from './preview3d';
 import { toDieline } from './advanced/model';
@@ -207,6 +208,7 @@ export class SimpleTab {
     const sliding = p.style === 'matchbox';
     $('#notches-row').hidden = !sliding;
     $('#lid-row').hidden = p.style !== 'hexagon';
+    this.syncGable();
     const twoPiece = p.style === 'traylid' || sliding;
     $('#lid-opts').hidden = !twoPiece;
     $('#lid-height-row').hidden = p.style !== 'traylid';
@@ -361,6 +363,19 @@ export class SimpleTab {
         this.update();
       });
     }
+    for (const [id, key] of [['#gableRoof', 'gableRoof'], ['#gableHandle', 'gableHandle']] as const) {
+      $<HTMLInputElement>(id).addEventListener('input', (e) => {
+        const v = num(e.target as HTMLInputElement, key === 'gableRoof' ? 5 : 10, 1000);
+        if (v === null) return;
+        this.state.params[key] = v;
+        this.update();
+      });
+    }
+    $<HTMLInputElement>('#gableTuck').addEventListener('change', (e) => {
+      if ((e.target as HTMLInputElement).checked) this.state.params.gableTuck = true;
+      else delete this.state.params.gableTuck;
+      this.update();
+    });
     $<HTMLInputElement>('#hexlid').addEventListener('change', (e) => {
       if ((e.target as HTMLInputElement).checked) delete this.state.params.lid;
       else this.state.params.lid = false;
@@ -445,6 +460,23 @@ export class SimpleTab {
     $('#play').addEventListener('click', () => this.preview.animateTo(this.fold > 0.5 ? 0 : 1));
     $<HTMLInputElement>('#lift').addEventListener('input', () => this.applyLift());
     $<HTMLInputElement>('#spin').addEventListener('change', (e) => (this.preview.autoRotate = (e.target as HTMLInputElement).checked));
+  }
+
+  /** The gable top settings: sizes (the defaults until changed) and whether it can tuck. */
+  private syncGable() {
+    const p = this.state.params;
+    $('#gable-opts').hidden = p.style !== 'gable';
+    if (p.style !== 'gable') return;
+    const def = gableDefaults(p);
+    for (const [id, v] of [['#gableRoof', p.gableRoof ?? def.roof], ['#gableHandle', p.gableHandle ?? def.handle]] as const) {
+      const inp = $<HTMLInputElement>(id);
+      if (document.activeElement !== inp) inp.value = String(Math.round(v));
+    }
+    const tuck = $<HTMLInputElement>('#gableTuck');
+    const ok = canTuckGable(p);
+    tuck.checked = !!p.gableTuck && ok;
+    tuck.disabled = !ok;
+    $('#gable-tuck-hint').textContent = ok ? 'like a milk carton, instead of closed gable ends' : 'needs the box to be at least as long as it is wide';
   }
 
   /** Lifts the lid, or slides the sleeve off along its length, from the slider. */
@@ -557,6 +589,9 @@ export function sanitizeSimple(raw: unknown): SimpleShare | null {
       style,
       ...(m.notches === false ? { notches: false } : {}),
       ...(p.lid === false ? { lid: false } : {}),
+      ...(typeof p.gableRoof === 'number' ? { gableRoof: n(p.gableRoof, 5, 1000, 50) } : {}),
+      ...(typeof p.gableHandle === 'number' ? { gableHandle: n(p.gableHandle, 10, 500, 40) } : {}),
+      ...(p.gableTuck === true ? { gableTuck: true } : {}),
       length: n(p.length, 5, 3000, d.length),
       width: n(p.width, 5, 3000, d.width),
       height: n(p.height, 5, 3000, d.height),

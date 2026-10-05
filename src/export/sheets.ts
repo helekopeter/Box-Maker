@@ -151,6 +151,7 @@ export function layoutCopies(d: Dieline, look: Appearance, copies: number, bed: 
           poly: p.poly.map(tf),
           ...(p.holes ? { holes: p.holes.map((h) => h.map(tf)) } : {}),
           ...(p.hinge ? { hinge: [tf(p.hinge[0]), tf(p.hinge[1])] as [Vec2, Vec2] } : {}),
+          ...(p.creases ? { creases: p.creases.map(([a, b]) => [tf(a), tf(b)] as [Vec2, Vec2]) } : {}),
         });
       }
       for (const f of d.faces) {

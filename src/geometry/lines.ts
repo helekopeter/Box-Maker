@@ -96,9 +96,9 @@ export function computeLines(d: Dieline): { cuts: Segment[]; folds: Segment[] } 
         if (g) g.cuts.push([param(g, a), param(g, b)]);
       }
     }
-    if (p.hinge) {
-      const g = get(p.hinge[0], p.hinge[1]);
-      if (g) g.folds.push([param(g, p.hinge[0]), param(g, p.hinge[1])]);
+    for (const [a, b] of [...(p.hinge ? [p.hinge] : []), ...(p.creases ?? [])]) {
+      const g = get(a, b);
+      if (g) g.folds.push([param(g, a), param(g, b)]);
     }
   }
 

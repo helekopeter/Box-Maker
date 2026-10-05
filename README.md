@@ -11,7 +11,7 @@ A small web app that generates laser-cutting files for cardboard boxes, with a l
    - Snap-lock (1-2-3) bottom
    - Auto-lock (crash-lock) bottom
    - Seal end
-   - Gable top with handle
+   - Gable top with handle (set the roof and handle heights, and choose closed gable ends or side triangles tucked in like a milk carton; tucking needs the box to be at least as long as it is wide)
    - Open tray
    - Tray + lid
    - Pizza box (one-piece FEFCO 0427 style mailer, no glue: double side walls lock the corners, the lid tucks in at the front)

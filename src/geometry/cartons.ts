@@ -21,6 +21,7 @@ interface Body {
   faces: Face[];
   /** Height added above the walls when assembled (gable roof + handle). */
   extraHeight: number;
+  p: BoxParams;
 }
 
 interface End {
@@ -67,7 +68,7 @@ function body(p: BoxParams): Body {
     id: 'glue', piece: 0, kind: 'glue', poly: glueTabPoly(x.end, 0, H, p.glueTab, 1),
     parent: 'left', hinge: [[x.end, 0], [x.end, H]], angle: 90, stage: 1, offset: -1,
   });
-  return { t, L, W, H, x, panels, faces, extraHeight: 0 };
+  return { t, L, W, H, x, panels, faces, extraHeight: 0, p };
 }
 
 /**
@@ -301,28 +302,72 @@ function autoLock(b: Body, e: End) {
   }
 }
 
+/** Whether a gable top can have its side triangles tucked in (needs length ≥ width). */
+export function canTuckGable(p: BoxParams): boolean {
+  return p.length >= p.width;
+}
+
+/** Default gable top sizes for a box (what the settings show until changed). */
+export function gableDefaults(p: BoxParams): { roof: number; handle: number } {
+  const W = p.width + p.thickness;
+  return { roof: W / 2, handle: Math.min(Math.max(W * 0.5, 25), 60) };
+}
+
 /**
- * Gable top: the side walls rise to a triangular gable, the front and back roof panels
- * lean in at 45° to meet at the ridge, and continue up into a double-layer handle.
+ * Gable top: the front and back roof panels lean in to meet at the ridge, and continue up
+ * into a double-layer handle. The side triangles either close the gable ends (glued to the
+ * roof with tabs) or, tucked, fold in like a milk carton: the middle triangle leans into the
+ * box and the two corner triangles fold flat against the inside of the roof.
  */
 function gableTop(b: Body, _e: End) {
-  const { L, W } = b;
-  const h = W / 2; // ridge height above the walls
-  const R = W / Math.SQRT2; // roof slope length
-  const Hh = Math.min(Math.max(W * 0.5, 25), 60); // handle height
-  const gt = Math.min(12, W * 0.15);
+  const { L, W, p } = b;
+  const def = gableDefaults(p);
+  const Wh = W / 2;
+  const Hr = Math.max(5, p.gableRoof ?? def.roof); // ridge height above the walls
+  const R = Math.hypot(Wh, Hr); // roof slope length
+  const phi = (Math.atan2(Wh, Hr) * 180) / Math.PI; // roof fold, from upright
+  const Hh = Math.max(10, p.gableHandle ?? def.handle); // handle height
+  const gt = Math.min(12, W * 0.15, R * 0.3);
+  // Tucked, each middle triangle reaches W/2 along the ridge, so the box must be at least
+  // as long as it is wide; otherwise the ends stay closed.
+  const tuck = p.gableTuck === true && canTuckGable(p);
+  const alpha = tuck ? cornerFold(W, Hr) : 0;
+  // Which side of each side wall a roof panel sits on, on the sheet.
+  const roofLeft = { right: true, left: true };
+  const roofRight = { right: true, left: false };
   for (const side of ['right', 'left'] as const) {
     const x = b.x[side];
-    const wall = b.panels.find((p) => p.id === side)!;
-    const apex: Vec2 = [x + W / 2, -h];
-    wall.poly = [[x, 0], apex, [x + W, 0], [x + W, b.H], [x, b.H]];
-    const centre: Vec2 = [x + W / 2, -h / 3];
-    for (const [k, [p0, p1]] of ([[[x, 0], apex], [apex, [x + W, 0]]] as [Vec2, Vec2][]).entries()) {
-      b.panels.push({
-        id: `${side}-gable-tab-${k}`, piece: 0, kind: 'glue', poly: edgeTab(p0, p1, gt, centre),
-        parent: side, hinge: [p0, p1], angle: 90, stage: 3, offset: -1,
-      });
+    if (!tuck) {
+      const wall = b.panels.find((q) => q.id === side)!;
+      const apex: Vec2 = [x + Wh, -Hr];
+      wall.poly = [[x, 0], apex, [x + W, 0], [x + W, b.H], [x, b.H]];
+      const centre: Vec2 = [x + Wh, -Hr / 3];
+      for (const [k, [p0, p1]] of ([[[x, 0], apex], [apex, [x + W, 0]]] as [Vec2, Vec2][]).entries()) {
+        b.panels.push({
+          id: `${side}-gable-tab-${k}`, piece: 0, kind: 'glue', poly: edgeTab(p0, p1, gt, centre),
+          parent: side, hinge: [p0, p1], angle: 90, stage: 3, offset: -1,
+        });
+      }
+      continue;
     }
+    // Tucked: the middle triangle leans in so its tip meets the ridge (W/2 in from the end).
+    const m: Vec2 = [x + Wh, -R];
+    b.panels.push({
+      id: `${side}-gusset`, piece: 0, kind: 'flap', poly: [[x, 0], [x + W, 0], m],
+      parent: side, hinge: [[x, 0], [x + W, 0]], angle: phi, stage: 3,
+    });
+    // Corner triangles fold flat against the roof's inside; where a roof panel is next to
+    // one on the sheet, that edge is a crease too.
+    b.panels.push({
+      id: `${side}-gusset-l`, piece: 0, kind: 'flap', poly: [[x, 0], m, [x, -R]],
+      parent: `${side}-gusset`, hinge: [[x, 0], m], angle: alpha, stage: 3, offset: -1,
+      ...(roofLeft[side] ? { creases: [[[x, 0], [x, -R]] as [Vec2, Vec2]] } : {}),
+    });
+    b.panels.push({
+      id: `${side}-gusset-r`, piece: 0, kind: 'flap', poly: [[x + W, 0], [x + W, -R], m],
+      parent: `${side}-gusset`, hinge: [m, [x + W, 0]], angle: alpha, stage: 3, offset: -1,
+      ...(roofRight[side] ? { creases: [[[x + W, 0], [x + W, -R]] as [Vec2, Vec2]] } : {}),
+    });
   }
   const hw = Math.max(20, Math.min(L * 0.5, 90, L - 16));
   const hh = Math.min(Hh * 0.4, 22);
@@ -331,21 +376,52 @@ function gableTop(b: Body, _e: End) {
     const roof = rect(x, -R, L, R);
     b.panels.push({
       id: `roof-${wall}`, piece: 0, kind: 'face', poly: roof,
-      parent: wall, hinge: [[x, 0], [x + L, 0]], angle: 45, stage: 4,
+      parent: wall, hinge: [[x, 0], [x + L, 0]], angle: phi, stage: 4,
     });
     const handle = rect(x, -R - Hh, L, Hh);
     b.panels.push({
       id: `handle-${wall}`, piece: 0, kind: 'face', poly: handle,
       holes: [slot(x + L / 2, -R - Hh * 0.55, hw, hh)],
-      // Folds back out by 45° so the handle stands upright; nudged outwards so the
-      // two handle layers sit back to back instead of inside each other.
-      parent: `roof-${wall}`, hinge: [[x, -R], [x + L, -R]], angle: -45, stage: 4, offset: 1,
+      // Folds back out so the handle stands upright; nudged outwards so the two handle
+      // layers sit back to back instead of inside each other.
+      parent: `roof-${wall}`, hinge: [[x, -R], [x + L, -R]], angle: -phi, stage: 4, offset: 1,
     });
     const label = wall === 'front' ? 'front' : 'back';
     b.faces.push({ id: `roof-${wall}`, label: `Roof (${label})`, rect: bounds(roof), rotation: 0 });
     b.faces.push({ id: `handle-${wall}`, label: `Handle (${label})`, rect: bounds(handle), rotation: 0 });
   }
-  b.extraHeight = h + Hh;
+  b.extraHeight = Hr + Hh;
+}
+
+/**
+ * How far a tucked gable's corner triangle folds on its diagonal (relative to the middle
+ * triangle) to lie flat against the roof, for a box W deep with a ridge Hr high (degrees,
+ * as a fold angle).
+ * Worked out in the gable end's own frame: d across the end, y into the box, z up.
+ */
+function cornerFold(W: number, Hr: number): number {
+  type V = [number, number, number];
+  const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const dot = (a: V, b: V) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unit = (a: V): V => {
+    const l = Math.hypot(...a);
+    return [a[0] / l, a[1] / l, a[2] / l];
+  };
+  const p0: V = [0, 0, 0];
+  const p1: V = [W, 0, 0];
+  const m: V = [W / 2, W / 2, Hr]; // the tip, on the ridge W/2 in from the end
+  const tl: V = [W / 2, 0, Hr]; // the ridge's end, where the corner triangle's top lands
+  const a = unit(sub(m, p0));
+  const n = unit(cross(sub(p1, p0), sub(m, p0)));
+  // Unfolded, the corner lies in the middle triangle's plane, on the far side of the hinge.
+  let w = unit(cross(n, a));
+  if (dot(w, sub(p1, p0)) > 0) w = [-w[0], -w[1], -w[2]];
+  const v = sub(tl, p0);
+  const k = dot(v, a);
+  const u = unit([v[0] - a[0] * k, v[1] - a[1] * k, v[2] - a[2] * k]);
+  // Measured this way round it comes out positive; as a fold it goes outwards (negative).
+  return -(Math.atan2(dot(a, cross(w, u)), dot(w, u)) * 180) / Math.PI;
 }
 
 const CLOSURES: Record<Closure, (b: Body, e: End) => void> = {

@@ -97,6 +97,18 @@ describe.each(styles)('%s fold animation', (style) => {
 });
 
 
+describe.each([
+  ['tucked gable', { gableTuck: true }],
+  ['tall tucked gable', { gableTuck: true, gableRoof: 90, gableHandle: 30 }],
+  ['low gable', { gableRoof: 20 }],
+] as [string, Partial<BoxParams>][])('%s', (_name, over) => {
+  it.each(sizes)('folds cleanly (%s×%s×%s, %s mm)', (length, width, height, thickness) => {
+    const p: BoxParams = { style: 'gable', length, width, height, thickness, glueTab: 15, lidHeight: 30, lidClearance: 1, ...over };
+    const unique = [...new Set(findCrossings(generateDieline(p), thickness).map((c) => `${c.moving} through ${c.through}`))];
+    expect(unique).toEqual([]);
+  });
+});
+
 describe('open hexagon box', () => {
   it.each(sizes)('folds cleanly (%s×%s×%s, %s mm)', (length, width, height, thickness) => {
     const p: BoxParams = { style: 'hexagon', lid: false, length, width, height, thickness, glueTab: 15, lidHeight: 30, lidClearance: 1 };

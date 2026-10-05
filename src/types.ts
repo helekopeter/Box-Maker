@@ -35,6 +35,12 @@ export interface BoxParams {
   notches?: boolean;
   /** Hexagonal gift box: a tuck lid on top (default on; off leaves it open). */
   lid?: boolean;
+  /** Gable top: height of the ridge above the walls, in mm (default: half the width, 45°). */
+  gableRoof?: number;
+  /** Gable top: height of the handle above the ridge, in mm. */
+  gableHandle?: number;
+  /** Gable top: the side triangles fold in (like a milk carton) instead of closing the ends. */
+  gableTuck?: boolean;
 }
 
 export type PanelKind = 'face' | 'flap' | 'glue';
@@ -55,6 +61,8 @@ export interface Panel {
   parent?: string;
   /** Fold line shared with the parent. */
   hinge?: [Vec2, Vec2];
+  /** Further fold lines along this panel's edges where it meets panels it isn't hinged to. */
+  creases?: [Vec2, Vec2][];
   /** Fully-folded angle in degrees. Positive folds towards the inside of the box, negative outwards. */
   angle?: number;
   /** Fold order; panels with a lower stage fold first. */

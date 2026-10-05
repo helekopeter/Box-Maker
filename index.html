@@ -83,6 +83,11 @@
               <option value="custom">Custom…</option>
             </select>
           </label>
+          <div id="gable-opts" hidden>
+            <label class="row">Roof height <span class="unit-label">mm</span><input type="number" id="gableRoof" min="5" max="1000" step="1" /></label>
+            <label class="row">Handle height <span class="unit-label">mm</span><input type="number" id="gableHandle" min="10" max="500" step="1" /></label>
+            <label class="check"><input type="checkbox" id="gableTuck" /> Tuck the side triangles in <span class="hint" id="gable-tuck-hint">like a milk carton, instead of closed gable ends</span></label>
+          </div>
           <label class="check" id="lid-row" hidden><input type="checkbox" id="hexlid" /> Lid <span class="hint">a tuck lid on top (off: open top)</span></label>
           <label class="check" id="notches-row" hidden><input type="checkbox" id="notches" /> Thumb notches <span class="hint">at both ends of the sleeve</span></label>
           <label class="row" id="thickness-row" hidden>Thickness <span class="unit-label">mm</span>
